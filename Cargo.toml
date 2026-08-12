@@ -2,5 +2,15 @@
 name = "vrc-pichistcheck"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Analyzes pictures saved by VRChat and shows their histogram as a SteamVR overlay"
 
 [dependencies]
+ctrlc = "3.5.2"
+libloading = "0.9.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.20"
+
+[dev-dependencies]
+rstest = "0.26.1"
