@@ -19,7 +19,7 @@ use crate::openvr::{
     },
 };
 
-pub use crate::openvr::error::Error;
+pub use crate::openvr::error::OpenvrError;
 
 pub type Transform = [[f32; 4]; 3];
 
@@ -31,15 +31,15 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn init_overlay_app() -> Result<Self, Error> {
+    pub fn init_overlay_app() -> Result<Self, OpenvrError> {
         Context::init(APPLICATION_TYPE_OVERLAY)
     }
 
-    pub fn init_utility() -> Result<Self, Error> {
+    pub fn init_utility() -> Result<Self, OpenvrError> {
         Context::init(APPLICATION_TYPE_UTILITY)
     }
 
-    fn init(kind: EvrApplicationType) -> Result<Self, Error> {
+    fn init(kind: EvrApplicationType) -> Result<Self, OpenvrError> {
         let library = Library::load()?;
 
         let mut code = INIT_ERROR_NONE;
@@ -62,40 +62,41 @@ impl Context {
         Ok(context)
     }
 
-    pub fn add_application_manifest(&self, manifest: &Path) -> Result<(), Error> {
+    pub fn add_application_manifest(&self, manifest: &Path) -> Result<(), OpenvrError> {
         let path = c_string(manifest.to_string_lossy().as_ref(), "manifest path")?;
-        let add =
-            self.applications_table()
-                .AddApplicationManifest
-                .ok_or(Error::MissingFunction {
-                    name: "AddApplicationManifest",
-                })?;
+        let add = self.applications_table().AddApplicationManifest.ok_or(
+            OpenvrError::MissingFunction {
+                name: "AddApplicationManifest",
+            },
+        )?;
 
         let code = unsafe { add(path.as_ptr(), false) };
         self.check_application("AddApplicationManifest", code)
     }
 
-    pub fn remove_application_manifest(&self, manifest: &Path) -> Result<(), Error> {
+    pub fn remove_application_manifest(&self, manifest: &Path) -> Result<(), OpenvrError> {
         let path = c_string(manifest.to_string_lossy().as_ref(), "manifest path")?;
-        let remove =
-            self.applications_table()
-                .RemoveApplicationManifest
-                .ok_or(Error::MissingFunction {
-                    name: "RemoveApplicationManifest",
-                })?;
+        let remove = self.applications_table().RemoveApplicationManifest.ok_or(
+            OpenvrError::MissingFunction {
+                name: "RemoveApplicationManifest",
+            },
+        )?;
 
         let code = unsafe { remove(path.as_ptr()) };
         self.check_application("RemoveApplicationManifest", code)
     }
 
-    pub fn set_application_auto_launch(&self, app_key: &str, enabled: bool) -> Result<(), Error> {
+    pub fn set_application_auto_launch(
+        &self,
+        app_key: &str,
+        enabled: bool,
+    ) -> Result<(), OpenvrError> {
         let key = c_string(app_key, "application key")?;
-        let set =
-            self.applications_table()
-                .SetApplicationAutoLaunch
-                .ok_or(Error::MissingFunction {
-                    name: "SetApplicationAutoLaunch",
-                })?;
+        let set = self.applications_table().SetApplicationAutoLaunch.ok_or(
+            OpenvrError::MissingFunction {
+                name: "SetApplicationAutoLaunch",
+            },
+        )?;
 
         let code = unsafe { set(key.as_ptr(), enabled) };
         self.check_application("SetApplicationAutoLaunch", code)
@@ -111,13 +112,13 @@ impl Context {
         unsafe { get(key.as_ptr()) }
     }
 
-    pub fn create_overlay(&self, key: &str, name: &str) -> Result<Overlay<'_>, Error> {
+    pub fn create_overlay(&self, key: &str, name: &str) -> Result<Overlay<'_>, OpenvrError> {
         let key = c_string(key, "overlay key")?;
         let name = c_string(name, "overlay name")?;
         let create = self
             .overlay_table()
             .CreateOverlay
-            .ok_or(Error::MissingFunction {
+            .ok_or(OpenvrError::MissingFunction {
                 name: "CreateOverlay",
             })?;
 
@@ -164,11 +165,11 @@ impl Context {
         &self,
         operation: &'static str,
         code: EvrApplicationError,
-    ) -> Result<(), Error> {
+    ) -> Result<(), OpenvrError> {
         if code == APPLICATION_ERROR_NONE {
             return Ok(());
         }
-        Err(Error::Call {
+        Err(OpenvrError::Call {
             operation,
             code,
             name: self
@@ -179,18 +180,18 @@ impl Context {
         })
     }
 
-    fn verify_fn_table(&self) -> Result<(), Error> {
+    fn verify_fn_table(&self) -> Result<(), OpenvrError> {
         match self.overlay_error_name(OVERLAY_ERROR_NONE) {
             Some(name) if !name.is_empty() => Ok(()),
-            returned => Err(Error::FnTableMismatch { returned }),
+            returned => Err(OpenvrError::FnTableMismatch { returned }),
         }
     }
 
-    fn check(&self, operation: &'static str, code: EvrOverlayError) -> Result<(), Error> {
+    fn check(&self, operation: &'static str, code: EvrOverlayError) -> Result<(), OpenvrError> {
         if code == OVERLAY_ERROR_NONE {
             return Ok(());
         }
-        Err(Error::Call {
+        Err(OpenvrError::Call {
             operation,
             code,
             name: self
@@ -205,8 +206,8 @@ impl Context {
     }
 }
 
-fn c_string(value: &str, field: &'static str) -> Result<CString, Error> {
-    CString::new(value).map_err(|_| Error::InvalidString { field })
+fn c_string(value: &str, field: &'static str) -> Result<CString, OpenvrError> {
+    CString::new(value).map_err(|_| OpenvrError::InvalidString { field })
 }
 
 fn owned_string(pointer: *const c_char) -> Option<String> {
@@ -232,10 +233,10 @@ pub struct Overlay<'a> {
 }
 
 impl Overlay<'_> {
-    pub fn set_raw_rgba8(&self, pixels: &[u8], width: u32, height: u32) -> Result<(), Error> {
+    pub fn set_raw_rgba8(&self, pixels: &[u8], width: u32, height: u32) -> Result<(), OpenvrError> {
         let expected = width as usize * height as usize * 4;
         if pixels.len() != expected {
-            return Err(Error::FrameSize {
+            return Err(OpenvrError::FrameSize {
                 width,
                 height,
                 expected,
@@ -243,18 +244,21 @@ impl Overlay<'_> {
             });
         }
 
-        let set = self.table().SetOverlayRaw.ok_or(Error::MissingFunction {
-            name: "SetOverlayRaw",
-        })?;
+        let set = self
+            .table()
+            .SetOverlayRaw
+            .ok_or(OpenvrError::MissingFunction {
+                name: "SetOverlayRaw",
+            })?;
         let code = unsafe { set(self.handle, pixels.as_ptr().cast(), width, height, 4) };
         self.context.check("SetOverlayRaw", code)
     }
 
-    pub fn set_hmd_relative_transform(&self, transform: &Transform) -> Result<(), Error> {
+    pub fn set_hmd_relative_transform(&self, transform: &Transform) -> Result<(), OpenvrError> {
         let set = self
             .table()
             .SetOverlayTransformTrackedDeviceRelative
-            .ok_or(Error::MissingFunction {
+            .ok_or(OpenvrError::MissingFunction {
                 name: "SetOverlayTransformTrackedDeviceRelative",
             })?;
         let matrix = HmdMatrix34 { m: *transform };
@@ -263,32 +267,35 @@ impl Overlay<'_> {
             .check("SetOverlayTransformTrackedDeviceRelative", code)
     }
 
-    pub fn set_width_meters(&self, width: f32) -> Result<(), Error> {
+    pub fn set_width_meters(&self, width: f32) -> Result<(), OpenvrError> {
         let set = self
             .table()
             .SetOverlayWidthInMeters
-            .ok_or(Error::MissingFunction {
+            .ok_or(OpenvrError::MissingFunction {
                 name: "SetOverlayWidthInMeters",
             })?;
         let code = unsafe { set(self.handle, width) };
         self.context.check("SetOverlayWidthInMeters", code)
     }
 
-    pub fn set_alpha(&self, alpha: f32) -> Result<(), Error> {
-        let set = self.table().SetOverlayAlpha.ok_or(Error::MissingFunction {
-            name: "SetOverlayAlpha",
-        })?;
+    pub fn set_alpha(&self, alpha: f32) -> Result<(), OpenvrError> {
+        let set = self
+            .table()
+            .SetOverlayAlpha
+            .ok_or(OpenvrError::MissingFunction {
+                name: "SetOverlayAlpha",
+            })?;
         let code = unsafe { set(self.handle, alpha.clamp(0.0, 1.0)) };
         self.context.check("SetOverlayAlpha", code)
     }
 
-    pub fn set_visible(&self, visible: bool) -> Result<(), Error> {
+    pub fn set_visible(&self, visible: bool) -> Result<(), OpenvrError> {
         let (operation, function) = if visible {
             ("ShowOverlay", self.table().ShowOverlay)
         } else {
             ("HideOverlay", self.table().HideOverlay)
         };
-        let show_or_hide = function.ok_or(Error::MissingFunction { name: operation })?;
+        let show_or_hide = function.ok_or(OpenvrError::MissingFunction { name: operation })?;
         let code = unsafe { show_or_hide(self.handle) };
         self.context.check(operation, code)
     }

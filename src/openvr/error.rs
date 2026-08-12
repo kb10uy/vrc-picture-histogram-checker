@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use thiserror::Error as ThisError;
 
 #[derive(Debug, ThisError)]
-pub enum Error {
+pub enum OpenvrError {
     #[error("failed to load {path:?}")]
     Library {
         path: PathBuf,

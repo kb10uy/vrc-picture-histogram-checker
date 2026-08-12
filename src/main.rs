@@ -1,11 +1,7 @@
-mod analysis;
+mod app;
 mod config;
-mod manifest;
-mod notification;
 mod openvr;
-mod panel;
 mod paths;
-mod watcher;
 
 use std::{
     path::Path,
@@ -22,12 +18,14 @@ use clap::Parser;
 use thiserror::Error as ThisError;
 
 use crate::{
-    config::Config,
-    manifest::APP_KEY,
-    notification::Notification,
-    openvr::{Context, Overlay, Transform},
-    panel::PanelRenderer,
-    watcher::PhotoWatcher,
+    app::{
+        analysis, manifest,
+        notification::Notification,
+        panel::PanelRenderer,
+        watcher::{PhotoWatcher, WatcherError},
+    },
+    config::{Config, ConfigError},
+    openvr::{Context, OpenvrError, Overlay, Transform},
 };
 
 const OVERLAY_KEY: &str = "org.kb10uy.vrc-pichistcheck.notification";
@@ -54,19 +52,19 @@ struct Arguments {
 #[derive(Debug, ThisError)]
 enum Error {
     #[error(transparent)]
-    Config(#[from] config::Error),
+    Config(#[from] ConfigError),
 
     #[error("{0} is not a directory")]
     NotADirectory(String),
 
     #[error(transparent)]
-    Manifest(#[from] manifest::Error),
+    Manifest(#[from] manifest::ManifestError),
 
     #[error(transparent)]
-    Watch(#[from] watcher::Error),
+    Watch(#[from] WatcherError),
 
     #[error(transparent)]
-    OpenVr(#[from] openvr::Error),
+    Openvr(#[from] OpenvrError),
 }
 
 fn main() {
@@ -93,16 +91,16 @@ fn set_auto_launch(enabled: bool) -> Result<(), Error> {
     let context = Context::init_utility()?;
     if enabled {
         context.add_application_manifest(&manifest)?;
-        context.set_application_auto_launch(APP_KEY, true)?;
+        context.set_application_auto_launch(manifest::APP_KEY, true)?;
     } else {
-        context.set_application_auto_launch(APP_KEY, false)?;
+        context.set_application_auto_launch(manifest::APP_KEY, false)?;
         context.remove_application_manifest(&manifest)?;
     }
 
     println!("manifest: {}", manifest.display());
     println!(
         "SteamVR starts this application on its own: {}",
-        context.application_auto_launch(APP_KEY)
+        context.application_auto_launch(manifest::APP_KEY)
     );
     Ok(())
 }

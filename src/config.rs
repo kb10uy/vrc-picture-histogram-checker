@@ -27,7 +27,7 @@ const DEFAULT_DISPLAY_SECONDS: f32 = 3.0;
 const DEFAULT_FADE_SECONDS: f32 = 1.0;
 
 #[derive(Debug, ThisError)]
-pub enum Error {
+pub enum ConfigError {
     #[error("failed to locate the executable")]
     Executable(#[source] std::io::Error),
 
@@ -81,13 +81,13 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn path() -> Result<PathBuf, Error> {
-        beside_executable(CONFIG_FILE_NAME).map_err(Error::Executable)
+    pub fn path() -> Result<PathBuf, ConfigError> {
+        beside_executable(CONFIG_FILE_NAME).map_err(ConfigError::Executable)
     }
 
-    pub fn load_or_create(path: &Path) -> Result<Self, Error> {
+    pub fn load_or_create(path: &Path) -> Result<Self, ConfigError> {
         match read_to_string(path) {
-            Ok(contents) => toml::from_str(&contents).map_err(|source| Error::Parse {
+            Ok(contents) => toml::from_str(&contents).map_err(|source| ConfigError::Parse {
                 path: path.to_path_buf(),
                 source,
             }),
@@ -96,21 +96,21 @@ impl Config {
                 config.save(path)?;
                 Ok(config)
             }
-            Err(source) => Err(Error::Io {
+            Err(source) => Err(ConfigError::Io {
                 path: path.to_path_buf(),
                 source,
             }),
         }
     }
 
-    fn save(&self, path: &Path) -> Result<(), Error> {
+    fn save(&self, path: &Path) -> Result<(), ConfigError> {
         if let Some(parent) = path.parent() {
-            create_dir_all(parent).map_err(|source| Error::Io {
+            create_dir_all(parent).map_err(|source| ConfigError::Io {
                 path: parent.to_path_buf(),
                 source,
             })?;
         }
-        write(path, toml::to_string_pretty(self)?).map_err(|source| Error::Io {
+        write(path, toml::to_string_pretty(self)?).map_err(|source| ConfigError::Io {
             path: path.to_path_buf(),
             source,
         })

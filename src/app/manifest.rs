@@ -12,7 +12,7 @@ const APPLICATION_NAME: &str = "VRC Picture Histogram Checker";
 const DESCRIPTION: &str = "Shows the histogram of pictures saved by VRChat";
 
 #[derive(Debug, ThisError)]
-pub enum Error {
+pub enum ManifestError {
     #[error("failed to locate the executable")]
     Executable(#[source] io::Error),
 
@@ -53,22 +53,22 @@ struct Localized {
     description: &'static str,
 }
 
-pub fn path() -> Result<PathBuf, Error> {
-    beside_executable(FILE_NAME).map_err(Error::Executable)
+pub fn path() -> Result<PathBuf, ManifestError> {
+    beside_executable(FILE_NAME).map_err(ManifestError::Executable)
 }
 
-pub fn write_beside_executable() -> Result<PathBuf, Error> {
-    let binary = executable_file_name().map_err(Error::Executable)?;
+pub fn write_beside_executable() -> Result<PathBuf, ManifestError> {
+    let binary = executable_file_name().map_err(ManifestError::Executable)?;
 
     let path = path()?;
-    write(&path, build(binary)?).map_err(|source| Error::Write {
+    write(&path, build(binary)?).map_err(|source| ManifestError::Write {
         path: path.clone(),
         source,
     })?;
     Ok(path)
 }
 
-fn build(binary_path_windows: String) -> Result<String, Error> {
+fn build(binary_path_windows: String) -> Result<String, ManifestError> {
     let manifest = Manifest {
         source: "builtin",
         applications: [Application {

@@ -4,36 +4,6 @@
 
 This is a VR overlay application to analyze and notify the saved picture of VRChat.
 
-## Architecture
-
-The target is Windows and SteamVR only. There is no backend abstraction and no
-OpenXR support, so OpenVR is called directly.
-
-```text
-watcher   VRChat の写真フォルダを監視し、書き込みが終わったファイルを報告する
-analysis  PNG をデコードし、ヒストグラム・白飛び/黒潰れ率・サムネイルを作る
-panel     SVG を組み立てて resvg で RGBA8 のパネルにする
-openvr    OpenVR の安全なラッパ。unsafe はこの階層から外に出さない
-notification  パネルを表示している時間と alpha を経過時間から決める
-config    実行ファイルの隣の config.toml
-manifest  SteamVR に自動起動を登録するための .vrmanifest
-paths     実行ファイルと同じフォルダのパス解決
-main      上記を 30Hz のループでつなぐ
-```
-
-`openvr` は crates.io の binding を使わず自前の FFI を持つ。`openvr` crate が依存する
-`openvr_sys` が cmake と libclang を要求するのに対し、必要な API は 10 個程度しかないため。
-`openvr_api.dll` は SteamVR のランタイムから実行時に読み込むので、C ツールチェーンも DLL の
-同梱も要らない。
-
-`openvr/sys.rs` の関数テーブルは公式ヘッダ `openvr_capi.h` からの手作業の書き起こしで、
-**使わないエントリも含めた宣言順がヘッダと一致していなければならない**。順序がずれると別の
-関数を呼ぶ。対象の版数と照合手順は README を参照。
-
-CPU で RGBA8 を作って `SetOverlayRaw` に渡すだけなので、D3D11 や wgpu への依存はない。
-パネルは写真 1 枚につき一度だけ生成される静止画で、解析 69ms + 描画 8ms（release, 4K 写真）
-とループを止めない範囲に収まっている。
-
 ## Code Style
 
 - Use Rust edition 2024.

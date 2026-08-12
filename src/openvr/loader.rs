@@ -8,7 +8,7 @@ use libloading::{Library as DynamicLibrary, Symbol};
 use serde::Deserialize;
 
 use crate::openvr::{
-    error::Error,
+    error::OpenvrError,
     sys::{EvrApplicationType, EvrInitError, INIT_ERROR_NONE},
 };
 
@@ -30,10 +30,10 @@ pub struct Library {
 }
 
 impl Library {
-    pub fn load() -> Result<Self, Error> {
+    pub fn load() -> Result<Self, OpenvrError> {
         let path = installed_runtime_library().unwrap_or_else(|| PathBuf::from(DLL_FILE_NAME));
         let library = unsafe { DynamicLibrary::new(&path) }
-            .map_err(|source| Error::Library { path, source })?;
+            .map_err(|source| OpenvrError::Library { path, source })?;
 
         Ok(Library {
             init_internal: unsafe { symbol(&library, b"VR_InitInternal\0")? },
@@ -47,11 +47,11 @@ impl Library {
         })
     }
 
-    pub fn fn_table<T>(&self, version: &CStr) -> Result<*const T, Error> {
+    pub fn fn_table<T>(&self, version: &CStr) -> Result<*const T, OpenvrError> {
         let mut code = INIT_ERROR_NONE;
         let pointer = unsafe { (self.get_generic_interface)(version.as_ptr(), &mut code) };
         if pointer == 0 || code != INIT_ERROR_NONE {
-            return Err(Error::Interface {
+            return Err(OpenvrError::Interface {
                 version: version.to_string_lossy().into_owned(),
                 code,
                 symbol: self.init_error_symbol(code),
@@ -60,8 +60,8 @@ impl Library {
         Ok(pointer as *const T)
     }
 
-    pub fn init_error(&self, code: EvrInitError) -> Error {
-        Error::Init {
+    pub fn init_error(&self, code: EvrInitError) -> OpenvrError {
+        OpenvrError::Init {
             code,
             symbol: self.init_error_symbol(code),
             description: unsafe { owned_string((self.init_error_as_description)(code)) },
@@ -73,8 +73,8 @@ impl Library {
     }
 }
 
-unsafe fn symbol<T: Copy>(library: &DynamicLibrary, name: &[u8]) -> Result<T, Error> {
-    let symbol: Symbol<T> = unsafe { library.get(name) }.map_err(|source| Error::Symbol {
+unsafe fn symbol<T: Copy>(library: &DynamicLibrary, name: &[u8]) -> Result<T, OpenvrError> {
+    let symbol: Symbol<T> = unsafe { library.get(name) }.map_err(|source| OpenvrError::Symbol {
         name: String::from_utf8_lossy(&name[..name.len() - 1]).into_owned(),
         source,
     })?;

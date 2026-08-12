@@ -8,7 +8,7 @@ use resvg::{
 };
 use thiserror::Error as ThisError;
 
-use crate::analysis::{Analysis, BINS, THUMBNAIL_MAX_HEIGHT, THUMBNAIL_MAX_WIDTH};
+use crate::app::analysis::{Analysis, BINS, THUMBNAIL_MAX_HEIGHT, THUMBNAIL_MAX_WIDTH};
 
 pub const PANEL_WIDTH: u32 = 512;
 pub const PANEL_HEIGHT: u32 = 424;
@@ -24,7 +24,7 @@ const FONT_FAMILY: &str = "Segoe UI";
 const CHANNEL_COLORS: [&str; 3] = ["#ff5a5a", "#5aff8c", "#5aa8ff"];
 
 #[derive(Debug, ThisError)]
-pub enum Error {
+pub enum PanelError {
     #[error("failed to encode the thumbnail")]
     Thumbnail(#[from] image::ImageError),
 
@@ -54,7 +54,7 @@ impl PanelRenderer {
         }
     }
 
-    pub fn render(&self, analysis: &Analysis) -> Result<Frame, Error> {
+    pub fn render(&self, analysis: &Analysis) -> Result<Frame, PanelError> {
         let thumbnail = encode_png(&analysis.thumbnail)?;
         let document = build_document(analysis);
 
@@ -71,7 +71,7 @@ impl PanelRenderer {
         };
 
         let tree = Tree::from_str(&document, &options)?;
-        let mut pixmap = Pixmap::new(PANEL_WIDTH, PANEL_HEIGHT).ok_or(Error::Pixmap)?;
+        let mut pixmap = Pixmap::new(PANEL_WIDTH, PANEL_HEIGHT).ok_or(PanelError::Pixmap)?;
         render(&tree, Transform::identity(), &mut pixmap.as_mut());
 
         Ok(Frame {
@@ -184,7 +184,7 @@ fn to_straight_alpha(pixmap: &Pixmap) -> Vec<u8> {
     pixels
 }
 
-fn encode_png(image: &RgbImage) -> Result<Arc<Vec<u8>>, Error> {
+fn encode_png(image: &RgbImage) -> Result<Arc<Vec<u8>>, PanelError> {
     let mut bytes = Vec::new();
     PngEncoder::new(&mut bytes).write_image(
         image.as_raw(),
@@ -200,7 +200,7 @@ mod tests {
     use image::{Rgb, RgbImage};
 
     use super::{PANEL_HEIGHT, PANEL_WIDTH, PanelRenderer, build_document};
-    use crate::analysis::{Analysis, analyze_image};
+    use crate::app::analysis::{Analysis, analyze_image};
 
     fn sample(color: [u8; 3]) -> Analysis {
         analyze_image(&RgbImage::from_pixel(1920, 1080, Rgb(color)))

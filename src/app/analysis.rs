@@ -12,7 +12,7 @@ const HIGHLIGHT_THRESHOLD: u8 = 254;
 const SHADOW_THRESHOLD: u8 = 1;
 
 #[derive(Debug, ThisError)]
-pub enum Error {
+pub enum AnalysisError {
     #[error("failed to read {path:?}")]
     Io {
         path: PathBuf,
@@ -37,19 +37,19 @@ pub struct Analysis {
     pub thumbnail: RgbImage,
 }
 
-pub fn analyze(path: &Path) -> Result<Analysis, Error> {
-    let reader = ImageReader::open(path).map_err(|source| Error::Io {
+pub fn analyze(path: &Path) -> Result<Analysis, AnalysisError> {
+    let reader = ImageReader::open(path).map_err(|source| AnalysisError::Io {
         path: path.to_path_buf(),
         source,
     })?;
     let image = reader
         .with_guessed_format()
-        .map_err(|source| Error::Io {
+        .map_err(|source| AnalysisError::Io {
             path: path.to_path_buf(),
             source,
         })?
         .decode()
-        .map_err(|source| Error::Decode {
+        .map_err(|source| AnalysisError::Decode {
             path: path.to_path_buf(),
             source,
         })?;

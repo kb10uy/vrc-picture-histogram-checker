@@ -15,7 +15,7 @@ const PHOTO_EXTENSION: &str = "png";
 const ABANDON_AFTER: Duration = Duration::from_secs(30);
 
 #[derive(Debug, ThisError)]
-pub enum Error {
+pub enum WatcherError {
     #[error("failed to watch {path:?}")]
     Watch {
         path: PathBuf,
@@ -31,7 +31,7 @@ pub struct PhotoWatcher {
 }
 
 impl PhotoWatcher {
-    pub fn new(directory: &Path) -> Result<Self, Error> {
+    pub fn new(directory: &Path) -> Result<Self, WatcherError> {
         let (sender, incoming) = channel();
         let mut watcher = recommended_watcher(move |event: notify::Result<notify::Event>| {
             let Ok(event) = event else {
@@ -44,14 +44,14 @@ impl PhotoWatcher {
                 let _ = sender.send(path);
             }
         })
-        .map_err(|source| Error::Watch {
+        .map_err(|source| WatcherError::Watch {
             path: directory.to_path_buf(),
             source,
         })?;
 
         watcher
             .watch(directory, RecursiveMode::Recursive)
-            .map_err(|source| Error::Watch {
+            .map_err(|source| WatcherError::Watch {
                 path: directory.to_path_buf(),
                 source,
             })?;
