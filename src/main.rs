@@ -42,14 +42,12 @@ const TICK: Duration = Duration::from_millis(33);
 #[derive(Parser)]
 #[command(version, about)]
 struct Arguments {
-    #[arg(
-        long,
-        conflicts_with = "unregister",
-        help = "Let SteamVR start this application on its own"
-    )]
+    /// Let SteamVR start this application on its own
+    #[arg(long, conflicts_with = "unregister")]
     register: bool,
 
-    #[arg(long, help = "Undo --register")]
+    /// Undo --register
+    #[arg(long)]
     unregister: bool,
 }
 
