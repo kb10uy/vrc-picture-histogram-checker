@@ -1,6 +1,7 @@
 mod analysis;
 mod config;
 mod openvr;
+mod panel;
 mod watcher;
 
 use std::{
@@ -17,23 +18,20 @@ use std::{
 use thiserror::Error as ThisError;
 
 use crate::{
-    analysis::{Analysis, BINS},
     config::Config,
-    openvr::{Context, Transform},
+    openvr::{Context, Overlay, Transform},
+    panel::PanelRenderer,
     watcher::PhotoWatcher,
 };
 
 const OVERLAY_KEY: &str = "org.kb10uy.vrc-pichistcheck.notification";
 const OVERLAY_NAME: &str = "VRC Picture Histogram Checker";
-const PANEL_PIXELS: u32 = 256;
 const PANEL_OFFSET: Transform = [
     [1.0, 0.0, 0.0, 0.0],
     [0.0, 1.0, 0.0, -0.25],
     [0.0, 0.0, 1.0, -1.0],
 ];
 const TICK: Duration = Duration::from_millis(33);
-const SUMMARY_BUCKETS: usize = 32;
-const SUMMARY_HEIGHT: usize = 8;
 
 #[derive(Debug, ThisError)]
 enum Error {
@@ -74,21 +72,17 @@ fn run() -> Result<(), Error> {
     }
     let mut watcher = PhotoWatcher::new(&config.watch_directory)?;
 
+    let renderer = PanelRenderer::new();
     let context = Context::init_overlay_app()?;
     let overlay = context.create_overlay(OVERLAY_KEY, OVERLAY_NAME)?;
 
-    overlay.set_raw_rgba8(&checkerboard(PANEL_PIXELS), PANEL_PIXELS, PANEL_PIXELS)?;
     overlay.set_hmd_relative_transform(&PANEL_OFFSET)?;
     overlay.set_width_meters(config.panel_width_meters)?;
     overlay.set_alpha(1.0)?;
-    overlay.set_visible(true)?;
 
     while running.load(Ordering::Relaxed) {
         for path in watcher.poll() {
-            match analysis::analyze(&path) {
-                Ok(analysis) => report(&path, &analysis),
-                Err(error) => eprintln!("{error}"),
-            }
+            show(&renderer, &overlay, &path)?;
         }
         if context.poll_quit() {
             break;
@@ -99,83 +93,31 @@ fn run() -> Result<(), Error> {
     Ok(())
 }
 
-fn report(path: &Path, analysis: &Analysis) {
-    let name = path.file_name().unwrap_or(path.as_os_str());
+fn show(renderer: &PanelRenderer, overlay: &Overlay<'_>, path: &Path) -> Result<(), Error> {
+    let analysis = match analysis::analyze(path) {
+        Ok(analysis) => analysis,
+        Err(error) => {
+            eprintln!("{error}");
+            return Ok(());
+        }
+    };
+
     println!(
-        "{} ({}x{}, {} samples)",
-        name.display(),
-        analysis.width,
-        analysis.height,
-        analysis.sampled_pixels
-    );
-    println!(
-        "  highlights {:.2}%  shadows {:.2}%",
+        "{}: highlight {:.2}%  shadow {:.2}%",
+        path.file_name().unwrap_or(path.as_os_str()).display(),
         analysis.clipped_highlights * 100.0,
         analysis.clipped_shadows * 100.0
     );
-    for (channel, label) in ["R", "G", "B"].iter().enumerate() {
-        println!("  {label} {}", sparkline(&analysis.histogram[channel]));
-    }
-}
 
-fn sparkline(histogram: &[u32; BINS]) -> String {
-    const BLOCKS: [char; SUMMARY_HEIGHT] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-
-    let width = BINS / SUMMARY_BUCKETS;
-    let buckets: Vec<u32> = histogram
-        .chunks(width)
-        .map(|bins| bins.iter().sum())
-        .collect();
-    let peak = buckets.iter().copied().max().unwrap_or(0);
-    if peak == 0 {
-        return String::new();
-    }
-
-    buckets
-        .iter()
-        .map(|count| {
-            let scaled = (*count as f64 / peak as f64).sqrt() * (SUMMARY_HEIGHT - 1) as f64;
-            BLOCKS[scaled.round() as usize]
-        })
-        .collect()
-}
-
-fn checkerboard(size: u32) -> Vec<u8> {
-    let cell = size / 8;
-    let mut pixels = Vec::with_capacity(size as usize * size as usize * 4);
-    for y in 0..size {
-        for x in 0..size {
-            let luminance = if (x / cell + y / cell).is_multiple_of(2) {
-                224
-            } else {
-                48
-            };
-            pixels.extend_from_slice(&[luminance, luminance, luminance, 255]);
+    let frame = match renderer.render(&analysis) {
+        Ok(frame) => frame,
+        Err(error) => {
+            eprintln!("{error}");
+            return Ok(());
         }
-    }
-    pixels
-}
+    };
 
-#[cfg(test)]
-mod tests {
-    use rstest::rstest;
-
-    use super::checkerboard;
-
-    #[rstest]
-    #[case(8)]
-    #[case(64)]
-    #[case(256)]
-    fn checkerboard_has_rgba8_length(#[case] size: u32) {
-        assert_eq!(checkerboard(size).len(), size as usize * size as usize * 4);
-    }
-
-    #[test]
-    fn checkerboard_alternates_between_cells() {
-        let size = 64;
-        let pixels = checkerboard(size);
-        let at = |x: usize, y: usize| pixels[(y * size as usize + x) * 4];
-        assert_ne!(at(0, 0), at(size as usize / 8, 0));
-        assert_eq!(at(0, 0), at(size as usize / 4, 0));
-    }
+    overlay.set_raw_rgba8(&frame.pixels, frame.width, frame.height)?;
+    overlay.set_visible(true)?;
+    Ok(())
 }
