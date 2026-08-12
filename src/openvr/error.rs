@@ -36,7 +36,7 @@ pub enum Error {
     MissingFunction { name: &'static str },
 
     #[error("{operation} failed: {name} ({code})")]
-    Overlay {
+    Call {
         operation: &'static str,
         code: u32,
         name: String,

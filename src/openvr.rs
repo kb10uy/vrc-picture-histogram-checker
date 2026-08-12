@@ -3,16 +3,19 @@ mod loader;
 mod sys;
 
 use std::{
-    ffi::{CStr, CString},
+    ffi::{CStr, CString, c_char},
+    path::Path,
     ptr::null,
 };
 
 use crate::openvr::{
     loader::Library,
     sys::{
-        APPLICATION_TYPE_OVERLAY, EVENT_QUIT, EvrOverlayError, HmdMatrix34, INIT_ERROR_NONE,
-        IVR_OVERLAY_FN_TABLE, IVR_SYSTEM_FN_TABLE, IvrOverlayFnTable, IvrSystemFnTable,
-        OVERLAY_ERROR_NONE, TRACKED_DEVICE_INDEX_HMD, VrEvent, VrOverlayHandle,
+        APPLICATION_ERROR_NONE, APPLICATION_TYPE_OVERLAY, APPLICATION_TYPE_UTILITY, EVENT_QUIT,
+        EvrApplicationError, EvrApplicationType, EvrOverlayError, HmdMatrix34, INIT_ERROR_NONE,
+        IVR_APPLICATIONS_FN_TABLE, IVR_OVERLAY_FN_TABLE, IVR_SYSTEM_FN_TABLE,
+        IvrApplicationsFnTable, IvrOverlayFnTable, IvrSystemFnTable, OVERLAY_ERROR_NONE,
+        TRACKED_DEVICE_INDEX_HMD, VrEvent, VrOverlayHandle,
     },
 };
 
@@ -24,14 +27,23 @@ pub struct Context {
     library: Library,
     system: *const IvrSystemFnTable,
     overlay: *const IvrOverlayFnTable,
+    applications: *const IvrApplicationsFnTable,
 }
 
 impl Context {
     pub fn init_overlay_app() -> Result<Self, Error> {
+        Context::init(APPLICATION_TYPE_OVERLAY)
+    }
+
+    pub fn init_utility() -> Result<Self, Error> {
+        Context::init(APPLICATION_TYPE_UTILITY)
+    }
+
+    fn init(kind: EvrApplicationType) -> Result<Self, Error> {
         let library = Library::load()?;
 
         let mut code = INIT_ERROR_NONE;
-        unsafe { (library.init_internal)(&mut code, APPLICATION_TYPE_OVERLAY) };
+        unsafe { (library.init_internal)(&mut code, kind) };
         if code != INIT_ERROR_NONE {
             return Err(library.init_error(code));
         }
@@ -40,21 +52,68 @@ impl Context {
             library,
             system: null(),
             overlay: null(),
+            applications: null(),
         };
         context.system = context.library.fn_table(IVR_SYSTEM_FN_TABLE)?;
         context.overlay = context.library.fn_table(IVR_OVERLAY_FN_TABLE)?;
+        context.applications = context.library.fn_table(IVR_APPLICATIONS_FN_TABLE)?;
         context.verify_fn_table()?;
 
         Ok(context)
     }
 
+    pub fn add_application_manifest(&self, manifest: &Path) -> Result<(), Error> {
+        let path = c_string(manifest.to_string_lossy().as_ref(), "manifest path")?;
+        let add =
+            self.applications_table()
+                .AddApplicationManifest
+                .ok_or(Error::MissingFunction {
+                    name: "AddApplicationManifest",
+                })?;
+
+        let code = unsafe { add(path.as_ptr(), false) };
+        self.check_application("AddApplicationManifest", code)
+    }
+
+    pub fn remove_application_manifest(&self, manifest: &Path) -> Result<(), Error> {
+        let path = c_string(manifest.to_string_lossy().as_ref(), "manifest path")?;
+        let remove =
+            self.applications_table()
+                .RemoveApplicationManifest
+                .ok_or(Error::MissingFunction {
+                    name: "RemoveApplicationManifest",
+                })?;
+
+        let code = unsafe { remove(path.as_ptr()) };
+        self.check_application("RemoveApplicationManifest", code)
+    }
+
+    pub fn set_application_auto_launch(&self, app_key: &str, enabled: bool) -> Result<(), Error> {
+        let key = c_string(app_key, "application key")?;
+        let set =
+            self.applications_table()
+                .SetApplicationAutoLaunch
+                .ok_or(Error::MissingFunction {
+                    name: "SetApplicationAutoLaunch",
+                })?;
+
+        let code = unsafe { set(key.as_ptr(), enabled) };
+        self.check_application("SetApplicationAutoLaunch", code)
+    }
+
+    pub fn application_auto_launch(&self, app_key: &str) -> bool {
+        let Ok(key) = c_string(app_key, "application key") else {
+            return false;
+        };
+        let Some(get) = self.applications_table().GetApplicationAutoLaunch else {
+            return false;
+        };
+        unsafe { get(key.as_ptr()) }
+    }
+
     pub fn create_overlay(&self, key: &str, name: &str) -> Result<Overlay<'_>, Error> {
-        let key = CString::new(key).map_err(|_| Error::InvalidString {
-            field: "overlay key",
-        })?;
-        let name = CString::new(name).map_err(|_| Error::InvalidString {
-            field: "overlay name",
-        })?;
+        let key = c_string(key, "overlay key")?;
+        let name = c_string(name, "overlay name")?;
         let create = self
             .overlay_table()
             .CreateOverlay
@@ -97,6 +156,29 @@ impl Context {
         unsafe { &*self.overlay }
     }
 
+    fn applications_table(&self) -> &IvrApplicationsFnTable {
+        unsafe { &*self.applications }
+    }
+
+    fn check_application(
+        &self,
+        operation: &'static str,
+        code: EvrApplicationError,
+    ) -> Result<(), Error> {
+        if code == APPLICATION_ERROR_NONE {
+            return Ok(());
+        }
+        Err(Error::Call {
+            operation,
+            code,
+            name: self
+                .applications_table()
+                .GetApplicationsErrorNameFromEnum
+                .and_then(|name_of| owned_string(unsafe { name_of(code) }))
+                .unwrap_or_else(|| String::from("unknown")),
+        })
+    }
+
     fn verify_fn_table(&self) -> Result<(), Error> {
         match self.overlay_error_name(OVERLAY_ERROR_NONE) {
             Some(name) if !name.is_empty() => Ok(()),
@@ -108,7 +190,7 @@ impl Context {
         if code == OVERLAY_ERROR_NONE {
             return Ok(());
         }
-        Err(Error::Overlay {
+        Err(Error::Call {
             operation,
             code,
             name: self
@@ -119,16 +201,23 @@ impl Context {
 
     fn overlay_error_name(&self, code: EvrOverlayError) -> Option<String> {
         let name_of = self.overlay_table().GetOverlayErrorNameFromEnum?;
-        let pointer = unsafe { name_of(code) };
-        if pointer.is_null() {
-            return None;
-        }
-        Some(
-            unsafe { CStr::from_ptr(pointer) }
-                .to_string_lossy()
-                .into_owned(),
-        )
+        owned_string(unsafe { name_of(code) })
     }
+}
+
+fn c_string(value: &str, field: &'static str) -> Result<CString, Error> {
+    CString::new(value).map_err(|_| Error::InvalidString { field })
+}
+
+fn owned_string(pointer: *const c_char) -> Option<String> {
+    if pointer.is_null() {
+        return None;
+    }
+    Some(
+        unsafe { CStr::from_ptr(pointer) }
+            .to_string_lossy()
+            .into_owned(),
+    )
 }
 
 impl Drop for Context {

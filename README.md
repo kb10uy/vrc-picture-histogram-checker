@@ -17,6 +17,30 @@ cargo run
 記録された SteamVR ランタイムから `bin\win64\openvr_api.dll` を実行時に読み込みます。
 見つからない場合は実行ファイルの隣と `PATH` を探索します。
 
+## SteamVR に自動起動させる
+
+SteamVR の起動と同時に立ち上がるようにするには、実行ファイルを最終的に置く場所へ配置してから
+登録します。
+
+```console
+vrc-pichistcheck --register
+```
+
+これは実行ファイルの隣に `vrc-pichistcheck.vrmanifest` を書き出し、`IVRApplications` の
+`AddApplicationManifest` で SteamVR に登録したうえで `SetApplicationAutoLaunch` を有効に
+します。登録後は SteamVR の設定にあるアドオン（スタートアップ）の一覧に現れるので、
+オン/オフはそちらからも切り替えられます。
+
+解除するには次のようにします。
+
+```console
+vrc-pichistcheck --unregister
+```
+
+登録されるのは**そのときの実行ファイルの絶対パス**です。実行ファイルを移動したりビルドし直して
+別の場所に置いた場合は、移動先で `--register` をやり直してください。`cargo run` で使っている
+`target\release\` のまま登録すると、そのパスに依存した登録になります。
+
 ## 設定
 
 設定ファイルは `%APPDATA%\vrc-pichistcheck\config.toml` です。存在しない場合は初回起動時に

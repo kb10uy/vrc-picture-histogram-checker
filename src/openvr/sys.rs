@@ -4,19 +4,23 @@ use std::ffi::{CStr, c_char, c_void};
 
 pub type EvrInitError = i32;
 pub type EvrOverlayError = u32;
+pub type EvrApplicationError = u32;
 pub type EvrApplicationType = u32;
 pub type TrackingUniverseOrigin = u32;
 pub type TrackedDeviceIndex = u32;
 pub type VrOverlayHandle = u64;
 
 pub const APPLICATION_TYPE_OVERLAY: EvrApplicationType = 2;
+pub const APPLICATION_TYPE_UTILITY: EvrApplicationType = 4;
 pub const TRACKED_DEVICE_INDEX_HMD: TrackedDeviceIndex = 0;
 pub const INIT_ERROR_NONE: EvrInitError = 0;
 pub const OVERLAY_ERROR_NONE: EvrOverlayError = 0;
+pub const APPLICATION_ERROR_NONE: EvrApplicationError = 0;
 pub const EVENT_QUIT: u32 = 700;
 
 pub const IVR_SYSTEM_FN_TABLE: &CStr = c"FnTable:IVRSystem_026";
 pub const IVR_OVERLAY_FN_TABLE: &CStr = c"FnTable:IVROverlay_028";
+pub const IVR_APPLICATIONS_FN_TABLE: &CStr = c"FnTable:IVRApplications_008";
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -89,6 +93,45 @@ pub struct IvrSystemFnTable {
     pub GetAppContainerFilePaths: *const c_void,
     pub GetRuntimeVersion: *const c_void,
     pub SetSDKVersion: *const c_void,
+}
+
+#[repr(C)]
+pub struct IvrApplicationsFnTable {
+    pub AddApplicationManifest:
+        Option<unsafe extern "system" fn(*const c_char, bool) -> EvrApplicationError>,
+    pub RemoveApplicationManifest:
+        Option<unsafe extern "system" fn(*const c_char) -> EvrApplicationError>,
+    pub IsApplicationInstalled: Option<unsafe extern "system" fn(*const c_char) -> bool>,
+    pub GetApplicationCount: *const c_void,
+    pub GetApplicationKeyByIndex: *const c_void,
+    pub GetApplicationKeyByProcessId: *const c_void,
+    pub LaunchApplication: *const c_void,
+    pub LaunchTemplateApplication: *const c_void,
+    pub LaunchApplicationFromMimeType: *const c_void,
+    pub LaunchDashboardOverlay: *const c_void,
+    pub CancelApplicationLaunch: *const c_void,
+    pub IdentifyApplication: *const c_void,
+    pub GetApplicationProcessId: *const c_void,
+    pub GetApplicationsErrorNameFromEnum:
+        Option<unsafe extern "system" fn(EvrApplicationError) -> *const c_char>,
+    pub GetApplicationPropertyString: *const c_void,
+    pub GetApplicationPropertyBool: *const c_void,
+    pub GetApplicationPropertyUint64: *const c_void,
+    pub SetApplicationAutoLaunch:
+        Option<unsafe extern "system" fn(*const c_char, bool) -> EvrApplicationError>,
+    pub GetApplicationAutoLaunch: Option<unsafe extern "system" fn(*const c_char) -> bool>,
+    pub SetDefaultApplicationForMimeType: *const c_void,
+    pub GetDefaultApplicationForMimeType: *const c_void,
+    pub GetApplicationSupportedMimeTypes: *const c_void,
+    pub GetApplicationsThatSupportMimeType: *const c_void,
+    pub GetApplicationLaunchArguments: *const c_void,
+    pub GetStartingApplication: *const c_void,
+    pub GetSceneApplicationState: *const c_void,
+    pub PerformApplicationPrelaunchCheck: *const c_void,
+    pub GetSceneApplicationStateNameFromEnum: *const c_void,
+    pub LaunchInternalProcess: *const c_void,
+    pub RegisterSubprocess: *const c_void,
+    pub GetCurrentSceneProcessId: *const c_void,
 }
 
 #[repr(C)]

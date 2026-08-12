@@ -1,5 +1,6 @@
 mod analysis;
 mod config;
+mod manifest;
 mod notification;
 mod openvr;
 mod panel;
@@ -20,12 +21,20 @@ use thiserror::Error as ThisError;
 
 use crate::{
     config::Config,
+    manifest::APP_KEY,
     notification::Notification,
     openvr::{Context, Overlay, Transform},
     panel::PanelRenderer,
     watcher::PhotoWatcher,
 };
 
+const USAGE: &str = concat!(
+    "usage: vrc-pichistcheck [--register | --unregister]\n",
+    "\n",
+    "  (no option)   watch the picture folder and show the panel in SteamVR\n",
+    "  --register    let SteamVR start this application on its own\n",
+    "  --unregister  undo --register",
+);
 const OVERLAY_KEY: &str = "org.kb10uy.vrc-pichistcheck.notification";
 const OVERLAY_NAME: &str = "VRC Picture Histogram Checker";
 const PANEL_OFFSET: Transform = [
@@ -44,6 +53,9 @@ enum Error {
     NotADirectory(String),
 
     #[error(transparent)]
+    Manifest(#[from] manifest::Error),
+
+    #[error(transparent)]
     Watch(#[from] watcher::Error),
 
     #[error(transparent)]
@@ -51,10 +63,48 @@ enum Error {
 }
 
 fn main() {
-    if let Err(error) = run() {
+    let result = match std::env::args().nth(1).as_deref() {
+        None => run(),
+        Some("--register") => set_auto_launch(true),
+        Some("--unregister") => set_auto_launch(false),
+        Some("--help" | "-h") => {
+            println!("{USAGE}");
+            return;
+        }
+        Some(argument) => {
+            eprintln!("unknown option: {argument}\n\n{USAGE}");
+            exit(2);
+        }
+    };
+
+    if let Err(error) = result {
         eprintln!("{error}");
         exit(1);
     }
+}
+
+fn set_auto_launch(enabled: bool) -> Result<(), Error> {
+    let manifest = if enabled {
+        manifest::write_beside_executable()?
+    } else {
+        manifest::path()?
+    };
+
+    let context = Context::init_utility()?;
+    if enabled {
+        context.add_application_manifest(&manifest)?;
+        context.set_application_auto_launch(APP_KEY, true)?;
+    } else {
+        context.set_application_auto_launch(APP_KEY, false)?;
+        context.remove_application_manifest(&manifest)?;
+    }
+
+    println!("manifest: {}", manifest.display());
+    println!(
+        "SteamVR starts this application on its own: {}",
+        context.application_auto_launch(APP_KEY)
+    );
+    Ok(())
 }
 
 fn run() -> Result<(), Error> {
