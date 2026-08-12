@@ -1,5 +1,5 @@
 [package]
-name = "vrc-pichistcheck"
+name = "vrc-picture-histogram-checker"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
@@ -21,3 +21,8 @@ windows-sys = { version = "0.61.2", features = ["Win32_UI_Shell", "Win32_System_
 [dev-dependencies]
 rstest = "0.26.1"
 tempfile = "3.27.0"
+
+[profile.release]
+lto = true
+strip = true
+panic = "abort"
