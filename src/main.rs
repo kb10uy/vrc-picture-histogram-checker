@@ -18,6 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use clap::Parser;
 use thiserror::Error as ThisError;
 
 use crate::{
@@ -29,13 +30,6 @@ use crate::{
     watcher::PhotoWatcher,
 };
 
-const USAGE: &str = concat!(
-    "usage: vrc-pichistcheck [--register | --unregister]\n",
-    "\n",
-    "  (no option)   watch the picture folder and show the panel in SteamVR\n",
-    "  --register    let SteamVR start this application on its own\n",
-    "  --unregister  undo --register",
-);
 const OVERLAY_KEY: &str = "org.kb10uy.vrc-pichistcheck.notification";
 const OVERLAY_NAME: &str = "VRC Picture Histogram Checker";
 const PANEL_OFFSET: Transform = [
@@ -44,6 +38,20 @@ const PANEL_OFFSET: Transform = [
     [0.0, 0.0, 1.0, -1.0],
 ];
 const TICK: Duration = Duration::from_millis(33);
+
+#[derive(Parser)]
+#[command(version, about)]
+struct Arguments {
+    #[arg(
+        long,
+        conflicts_with = "unregister",
+        help = "Let SteamVR start this application on its own"
+    )]
+    register: bool,
+
+    #[arg(long, help = "Undo --register")]
+    unregister: bool,
+}
 
 #[derive(Debug, ThisError)]
 enum Error {
@@ -64,18 +72,11 @@ enum Error {
 }
 
 fn main() {
-    let result = match std::env::args().nth(1).as_deref() {
-        None => run(),
-        Some("--register") => set_auto_launch(true),
-        Some("--unregister") => set_auto_launch(false),
-        Some("--help" | "-h") => {
-            println!("{USAGE}");
-            return;
-        }
-        Some(argument) => {
-            eprintln!("unknown option: {argument}\n\n{USAGE}");
-            exit(2);
-        }
+    let arguments = Arguments::parse();
+    let result = match (arguments.register, arguments.unregister) {
+        (true, _) => set_auto_launch(true),
+        (_, true) => set_auto_launch(false),
+        _ => run(),
     };
 
     if let Err(error) = result {

@@ -6,6 +6,7 @@ license = "MIT OR Apache-2.0"
 description = "Analyzes pictures saved by VRChat and shows their histogram as a SteamVR overlay"
 
 [dependencies]
+clap = { version = "4.6.6", features = ["derive"] }
 ctrlc = "3.5.2"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 libloading = "0.9.0"
