@@ -1,7 +1,10 @@
+mod analysis;
 mod config;
 mod openvr;
+mod watcher;
 
 use std::{
+    path::Path,
     process::exit,
     sync::{
         Arc,
@@ -13,7 +16,12 @@ use std::{
 
 use thiserror::Error as ThisError;
 
-use crate::{config::Config, openvr::Context, openvr::Transform};
+use crate::{
+    analysis::{Analysis, BINS},
+    config::Config,
+    openvr::{Context, Transform},
+    watcher::PhotoWatcher,
+};
 
 const OVERLAY_KEY: &str = "org.kb10uy.vrc-pichistcheck.notification";
 const OVERLAY_NAME: &str = "VRC Picture Histogram Checker";
@@ -24,11 +32,19 @@ const PANEL_OFFSET: Transform = [
     [0.0, 0.0, 1.0, -1.0],
 ];
 const TICK: Duration = Duration::from_millis(33);
+const SUMMARY_BUCKETS: usize = 32;
+const SUMMARY_HEIGHT: usize = 8;
 
 #[derive(Debug, ThisError)]
 enum Error {
     #[error(transparent)]
     Config(#[from] config::Error),
+
+    #[error("{0} is not a directory")]
+    NotADirectory(String),
+
+    #[error(transparent)]
+    Watch(#[from] watcher::Error),
 
     #[error(transparent)]
     OpenVr(#[from] openvr::Error),
@@ -52,8 +68,11 @@ fn run() -> Result<(), Error> {
     println!("configuration: {}", config_path.display());
     println!("watching: {}", config.watch_directory.display());
     if !config.watch_directory.is_dir() {
-        eprintln!("note: the directory does not exist yet");
+        return Err(Error::NotADirectory(
+            config.watch_directory.display().to_string(),
+        ));
     }
+    let mut watcher = PhotoWatcher::new(&config.watch_directory)?;
 
     let context = Context::init_overlay_app()?;
     let overlay = context.create_overlay(OVERLAY_KEY, OVERLAY_NAME)?;
@@ -65,6 +84,12 @@ fn run() -> Result<(), Error> {
     overlay.set_visible(true)?;
 
     while running.load(Ordering::Relaxed) {
+        for path in watcher.poll() {
+            match analysis::analyze(&path) {
+                Ok(analysis) => report(&path, &analysis),
+                Err(error) => eprintln!("{error}"),
+            }
+        }
         if context.poll_quit() {
             break;
         }
@@ -72,6 +97,47 @@ fn run() -> Result<(), Error> {
     }
 
     Ok(())
+}
+
+fn report(path: &Path, analysis: &Analysis) {
+    let name = path.file_name().unwrap_or(path.as_os_str());
+    println!(
+        "{} ({}x{}, {} samples)",
+        name.display(),
+        analysis.width,
+        analysis.height,
+        analysis.sampled_pixels
+    );
+    println!(
+        "  highlights {:.2}%  shadows {:.2}%",
+        analysis.clipped_highlights * 100.0,
+        analysis.clipped_shadows * 100.0
+    );
+    for (channel, label) in ["R", "G", "B"].iter().enumerate() {
+        println!("  {label} {}", sparkline(&analysis.histogram[channel]));
+    }
+}
+
+fn sparkline(histogram: &[u32; BINS]) -> String {
+    const BLOCKS: [char; SUMMARY_HEIGHT] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+    let width = BINS / SUMMARY_BUCKETS;
+    let buckets: Vec<u32> = histogram
+        .chunks(width)
+        .map(|bins| bins.iter().sum())
+        .collect();
+    let peak = buckets.iter().copied().max().unwrap_or(0);
+    if peak == 0 {
+        return String::new();
+    }
+
+    buckets
+        .iter()
+        .map(|count| {
+            let scaled = (*count as f64 / peak as f64).sqrt() * (SUMMARY_HEIGHT - 1) as f64;
+            BLOCKS[scaled.round() as usize]
+        })
+        .collect()
 }
 
 fn checkerboard(size: u32) -> Vec<u8> {

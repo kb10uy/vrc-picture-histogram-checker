@@ -7,7 +7,9 @@ description = "Analyzes pictures saved by VRChat and shows their histogram as a 
 
 [dependencies]
 ctrlc = "3.5.2"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 libloading = "0.9.0"
+notify = "8.2.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "2.0.20"
