@@ -1,12 +1,9 @@
-use std::{
-    env::current_exe,
-    fs::write,
-    io,
-    path::{Path, PathBuf},
-};
+use std::{fs::write, io, path::PathBuf};
 
 use serde::Serialize;
 use thiserror::Error as ThisError;
+
+use crate::paths::{beside_executable, executable_file_name};
 
 pub const APP_KEY: &str = "org.kb10uy.vrc-pichistcheck";
 
@@ -18,9 +15,6 @@ const DESCRIPTION: &str = "Shows the histogram of pictures saved by VRChat";
 pub enum Error {
     #[error("failed to locate the executable")]
     Executable(#[source] io::Error),
-
-    #[error("the executable path has no file name")]
-    NamelessExecutable,
 
     #[error("failed to write {path:?}")]
     Write {
@@ -60,16 +54,11 @@ struct Localized {
 }
 
 pub fn path() -> Result<PathBuf, Error> {
-    Ok(directory()?.join(FILE_NAME))
+    beside_executable(FILE_NAME).map_err(Error::Executable)
 }
 
 pub fn write_beside_executable() -> Result<PathBuf, Error> {
-    let executable = current_exe().map_err(Error::Executable)?;
-    let binary = executable
-        .file_name()
-        .ok_or(Error::NamelessExecutable)?
-        .to_string_lossy()
-        .into_owned();
+    let binary = executable_file_name().map_err(Error::Executable)?;
 
     let path = path()?;
     write(&path, build(binary)?).map_err(|source| Error::Write {
@@ -77,14 +66,6 @@ pub fn write_beside_executable() -> Result<PathBuf, Error> {
         source,
     })?;
     Ok(path)
-}
-
-fn directory() -> Result<PathBuf, Error> {
-    let executable = current_exe().map_err(Error::Executable)?;
-    executable
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or(Error::NamelessExecutable)
 }
 
 fn build(binary_path_windows: String) -> Result<String, Error> {

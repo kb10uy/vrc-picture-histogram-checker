@@ -43,8 +43,9 @@ vrc-pichistcheck --unregister
 
 ## 設定
 
-設定ファイルは `%APPDATA%\vrc-pichistcheck\config.toml` です。存在しない場合は初回起動時に
-既定値で生成されます。
+設定ファイルは実行ファイルと同じフォルダの `config.toml` です。存在しない場合は初回起動時に
+既定値で生成されます。書き込めない場所（`Program Files` の下など）に実行ファイルを置くと生成に
+失敗するので、その場合は書き込める場所に置いてください。
 
 ```toml
 watch_directory = 'J:\Pictures\VRChat'

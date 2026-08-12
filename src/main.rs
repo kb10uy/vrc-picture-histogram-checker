@@ -4,6 +4,7 @@ mod manifest;
 mod notification;
 mod openvr;
 mod panel;
+mod paths;
 mod watcher;
 
 use std::{

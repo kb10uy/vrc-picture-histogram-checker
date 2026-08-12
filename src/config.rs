@@ -17,7 +17,8 @@ use windows_sys::{
     core::PWSTR,
 };
 
-const APPLICATION_DIRECTORY: &str = "vrc-pichistcheck";
+use crate::paths::beside_executable;
+
 const CONFIG_FILE_NAME: &str = "config.toml";
 const VRCHAT_DIRECTORY: &str = "VRChat";
 const DEFAULT_PANEL_WIDTH_METERS: f32 = 0.4;
@@ -27,8 +28,8 @@ const DEFAULT_FADE_SECONDS: f32 = 1.0;
 
 #[derive(Debug, ThisError)]
 pub enum Error {
-    #[error("APPDATA is not set, so the configuration directory cannot be located")]
-    NoConfigDirectory,
+    #[error("failed to locate the executable")]
+    Executable(#[source] std::io::Error),
 
     #[error("failed to access {path:?}")]
     Io {
@@ -81,10 +82,7 @@ impl Default for Config {
 
 impl Config {
     pub fn path() -> Result<PathBuf, Error> {
-        let app_data = std::env::var_os("APPDATA").ok_or(Error::NoConfigDirectory)?;
-        Ok(Path::new(&app_data)
-            .join(APPLICATION_DIRECTORY)
-            .join(CONFIG_FILE_NAME))
+        beside_executable(CONFIG_FILE_NAME).map_err(Error::Executable)
     }
 
     pub fn load_or_create(path: &Path) -> Result<Self, Error> {
@@ -201,6 +199,18 @@ mod tests {
         let config: Config = toml::from_str(contents).expect("should parse");
         assert_eq!(config.watch_directory.to_string_lossy(), directory);
         assert_eq!(config.panel_width_meters, width);
+    }
+
+    #[test]
+    fn places_the_configuration_next_to_the_executable() {
+        let path = Config::path().expect("should resolve");
+        let executable = std::env::current_exe().expect("should resolve");
+
+        assert_eq!(path.parent(), executable.parent());
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("config.toml")
+        );
     }
 
     #[test]
