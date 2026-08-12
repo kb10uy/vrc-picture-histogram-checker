@@ -1,3 +1,4 @@
+mod config;
 mod openvr;
 
 use std::{
@@ -10,18 +11,28 @@ use std::{
     time::Duration,
 };
 
-use crate::openvr::{Context, Error, Transform};
+use thiserror::Error as ThisError;
+
+use crate::{config::Config, openvr::Context, openvr::Transform};
 
 const OVERLAY_KEY: &str = "org.kb10uy.vrc-pichistcheck.notification";
 const OVERLAY_NAME: &str = "VRC Picture Histogram Checker";
 const PANEL_PIXELS: u32 = 256;
-const PANEL_WIDTH_METERS: f32 = 0.4;
 const PANEL_OFFSET: Transform = [
     [1.0, 0.0, 0.0, 0.0],
     [0.0, 1.0, 0.0, -0.25],
     [0.0, 0.0, 1.0, -1.0],
 ];
 const TICK: Duration = Duration::from_millis(33);
+
+#[derive(Debug, ThisError)]
+enum Error {
+    #[error(transparent)]
+    Config(#[from] config::Error),
+
+    #[error(transparent)]
+    OpenVr(#[from] openvr::Error),
+}
 
 fn main() {
     if let Err(error) = run() {
@@ -36,12 +47,20 @@ fn run() -> Result<(), Error> {
     ctrlc::set_handler(move || interrupted.store(false, Ordering::Relaxed))
         .expect("failed to install the Ctrl-C handler");
 
+    let config_path = Config::path()?;
+    let config = Config::load_or_create(&config_path)?;
+    println!("configuration: {}", config_path.display());
+    println!("watching: {}", config.watch_directory.display());
+    if !config.watch_directory.is_dir() {
+        eprintln!("note: the directory does not exist yet");
+    }
+
     let context = Context::init_overlay_app()?;
     let overlay = context.create_overlay(OVERLAY_KEY, OVERLAY_NAME)?;
 
     overlay.set_raw_rgba8(&checkerboard(PANEL_PIXELS), PANEL_PIXELS, PANEL_PIXELS)?;
     overlay.set_hmd_relative_transform(&PANEL_OFFSET)?;
-    overlay.set_width_meters(PANEL_WIDTH_METERS)?;
+    overlay.set_width_meters(config.panel_width_meters)?;
     overlay.set_alpha(1.0)?;
     overlay.set_visible(true)?;
 

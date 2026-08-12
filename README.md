@@ -17,6 +17,20 @@ cargo run
 記録された SteamVR ランタイムから `bin\win64\openvr_api.dll` を実行時に読み込みます。
 見つからない場合は実行ファイルの隣と `PATH` を探索します。
 
+## 設定
+
+設定ファイルは `%APPDATA%\vrc-pichistcheck\config.toml` です。存在しない場合は初回起動時に
+既定値で生成されます。
+
+```toml
+watch_directory = 'J:\Pictures\VRChat'
+panel_width_meters = 0.4
+```
+
+`watch_directory` の既定値は Known Folder API で解決した Pictures フォルダ配下の `VRChat`
+です。`%USERPROFILE%\Pictures` を直接組み立てていないのは、Pictures が別ドライブや OneDrive
+にリダイレクトされている環境があるためです。
+
 ## OpenVR バインディングについて
 
 `src/openvr/sys.rs` の関数テーブルは OpenVR の公式ヘッダ `openvr_capi.h` から手で
