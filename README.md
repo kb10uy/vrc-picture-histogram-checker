@@ -25,11 +25,25 @@ cargo run
 ```toml
 watch_directory = 'J:\Pictures\VRChat'
 panel_width_meters = 0.4
+panel_alpha = 0.75
+display_seconds = 3.0
+fade_seconds = 1.0
 ```
+
+| 項目 | 意味 |
+| --- | --- |
+| `watch_directory` | 監視するフォルダ |
+| `panel_width_meters` | パネルの横幅（メートル） |
+| `panel_alpha` | 表示中の不透明度 |
+| `display_seconds` | フェードを始めるまでの表示時間 |
+| `fade_seconds` | フェードアウトにかける時間 |
 
 `watch_directory` の既定値は Known Folder API で解決した Pictures フォルダ配下の `VRChat`
 です。`%USERPROFILE%\Pictures` を直接組み立てていないのは、Pictures が別ドライブや OneDrive
 にリダイレクトされている環境があるためです。
+
+写真が保存されるたびにパネルが差し替わり、表示時間のカウントがやり直されます。連続で撮った
+場合は最後の 1 枚が残ります。
 
 ## OpenVR バインディングについて
 

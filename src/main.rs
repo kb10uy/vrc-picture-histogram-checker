@@ -1,5 +1,6 @@
 mod analysis;
 mod config;
+mod notification;
 mod openvr;
 mod panel;
 mod watcher;
@@ -12,13 +13,14 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread::sleep,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use thiserror::Error as ThisError;
 
 use crate::{
     config::Config,
+    notification::Notification,
     openvr::{Context, Overlay, Transform},
     panel::PanelRenderer,
     watcher::PhotoWatcher,
@@ -78,12 +80,36 @@ fn run() -> Result<(), Error> {
 
     overlay.set_hmd_relative_transform(&PANEL_OFFSET)?;
     overlay.set_width_meters(config.panel_width_meters)?;
-    overlay.set_alpha(1.0)?;
+
+    let mut notification = Notification::new(
+        config.display_seconds,
+        config.fade_seconds,
+        config.panel_alpha,
+    );
+    let mut visible = false;
 
     while running.load(Ordering::Relaxed) {
         for path in watcher.poll() {
-            show(&renderer, &overlay, &path)?;
+            if show(&renderer, &overlay, &path)? {
+                notification.trigger(Instant::now());
+            }
         }
+
+        match notification.alpha(Instant::now()) {
+            Some(alpha) => {
+                overlay.set_alpha(alpha)?;
+                if !visible {
+                    overlay.set_visible(true)?;
+                    visible = true;
+                }
+            }
+            None if visible => {
+                overlay.set_visible(false)?;
+                visible = false;
+            }
+            None => {}
+        }
+
         if context.poll_quit() {
             break;
         }
@@ -93,12 +119,12 @@ fn run() -> Result<(), Error> {
     Ok(())
 }
 
-fn show(renderer: &PanelRenderer, overlay: &Overlay<'_>, path: &Path) -> Result<(), Error> {
+fn show(renderer: &PanelRenderer, overlay: &Overlay<'_>, path: &Path) -> Result<bool, Error> {
     let analysis = match analysis::analyze(path) {
         Ok(analysis) => analysis,
         Err(error) => {
             eprintln!("{error}");
-            return Ok(());
+            return Ok(false);
         }
     };
 
@@ -113,11 +139,10 @@ fn show(renderer: &PanelRenderer, overlay: &Overlay<'_>, path: &Path) -> Result<
         Ok(frame) => frame,
         Err(error) => {
             eprintln!("{error}");
-            return Ok(());
+            return Ok(false);
         }
     };
 
     overlay.set_raw_rgba8(&frame.pixels, frame.width, frame.height)?;
-    overlay.set_visible(true)?;
-    Ok(())
+    Ok(true)
 }

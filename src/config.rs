@@ -21,6 +21,9 @@ const APPLICATION_DIRECTORY: &str = "vrc-pichistcheck";
 const CONFIG_FILE_NAME: &str = "config.toml";
 const VRCHAT_DIRECTORY: &str = "VRChat";
 const DEFAULT_PANEL_WIDTH_METERS: f32 = 0.4;
+const DEFAULT_PANEL_ALPHA: f32 = 0.75;
+const DEFAULT_DISPLAY_SECONDS: f32 = 3.0;
+const DEFAULT_FADE_SECONDS: f32 = 1.0;
 
 #[derive(Debug, ThisError)]
 pub enum Error {
@@ -53,6 +56,15 @@ pub struct Config {
 
     #[serde(default = "default_panel_width_meters")]
     pub panel_width_meters: f32,
+
+    #[serde(default = "default_panel_alpha")]
+    pub panel_alpha: f32,
+
+    #[serde(default = "default_display_seconds")]
+    pub display_seconds: f32,
+
+    #[serde(default = "default_fade_seconds")]
+    pub fade_seconds: f32,
 }
 
 impl Default for Config {
@@ -60,6 +72,9 @@ impl Default for Config {
         Config {
             watch_directory: default_watch_directory(),
             panel_width_meters: default_panel_width_meters(),
+            panel_alpha: default_panel_alpha(),
+            display_seconds: default_display_seconds(),
+            fade_seconds: default_fade_seconds(),
         }
     }
 }
@@ -108,6 +123,18 @@ fn default_panel_width_meters() -> f32 {
     DEFAULT_PANEL_WIDTH_METERS
 }
 
+fn default_panel_alpha() -> f32 {
+    DEFAULT_PANEL_ALPHA
+}
+
+fn default_display_seconds() -> f32 {
+    DEFAULT_DISPLAY_SECONDS
+}
+
+fn default_fade_seconds() -> f32 {
+    DEFAULT_FADE_SECONDS
+}
+
 fn default_watch_directory() -> PathBuf {
     pictures_directory().join(VRCHAT_DIRECTORY)
 }
@@ -144,7 +171,10 @@ mod tests {
     use rstest::rstest;
     use tempfile::tempdir;
 
-    use super::{Config, DEFAULT_PANEL_WIDTH_METERS, known_pictures_directory};
+    use super::{
+        Config, DEFAULT_DISPLAY_SECONDS, DEFAULT_FADE_SECONDS, DEFAULT_PANEL_ALPHA,
+        DEFAULT_PANEL_WIDTH_METERS, known_pictures_directory,
+    };
 
     #[test]
     fn resolves_the_pictures_known_folder() {
@@ -171,6 +201,15 @@ mod tests {
         let config: Config = toml::from_str(contents).expect("should parse");
         assert_eq!(config.watch_directory.to_string_lossy(), directory);
         assert_eq!(config.panel_width_meters, width);
+    }
+
+    #[test]
+    fn fills_the_presentation_defaults() {
+        let config: Config = toml::from_str("watch_directory = 'D:\\Shots'\n").expect("parses");
+
+        assert_eq!(config.panel_alpha, DEFAULT_PANEL_ALPHA);
+        assert_eq!(config.display_seconds, DEFAULT_DISPLAY_SECONDS);
+        assert_eq!(config.fade_seconds, DEFAULT_FADE_SECONDS);
     }
 
     #[test]
