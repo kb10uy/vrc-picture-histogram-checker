@@ -1,51 +1,55 @@
 # VRC Picture Histogram Checker
 
-VRChat が保存した写真を検出し、サムネイル・RGB ヒストグラム・白飛び/黒潰れ率をまとめた
-パネルを SteamVR のオーバーレイとして表示します。
+Watches for pictures saved by VRChat and shows a SteamVR overlay panel with the
+thumbnail, an RGB histogram, and the proportion of clipped highlights and
+shadows.
 
-対応環境は Windows + SteamVR (OpenVR) のみです。
+Windows with SteamVR (OpenVR) is the only supported environment.
 
-## 動かす
+## Running
 
-SteamVR を起動した状態で実行します。
+Start it while SteamVR is running.
 
 ```console
 cargo run
 ```
 
-`openvr_api.dll` は同梱していません。`%LOCALAPPDATA%\openvr\openvrpaths.vrpath` に
-記録された SteamVR ランタイムから `bin\win64\openvr_api.dll` を実行時に読み込みます。
-見つからない場合は実行ファイルの隣と `PATH` を探索します。
+`openvr_api.dll` is not bundled. It is loaded at runtime from the SteamVR
+runtime recorded in `%LOCALAPPDATA%\openvr\openvrpaths.vrpath`, at
+`bin\win64\openvr_api.dll`. If that lookup fails, the plain name is loaded
+instead, which searches beside the executable and along `PATH`.
 
-## SteamVR に自動起動させる
+## Letting SteamVR start it
 
-SteamVR の起動と同時に立ち上がるようにするには、実行ファイルを最終的に置く場所へ配置してから
-登録します。
+To have it come up together with SteamVR, put the executable where it is going
+to live and then register it.
 
 ```console
 vrc-pichistcheck --register
 ```
 
-これは実行ファイルの隣に `vrc-pichistcheck.vrmanifest` を書き出し、`IVRApplications` の
-`AddApplicationManifest` で SteamVR に登録したうえで `SetApplicationAutoLaunch` を有効に
-します。登録後は SteamVR の設定にあるアドオン（スタートアップ）の一覧に現れるので、
-オン/オフはそちらからも切り替えられます。
+This writes `vrc-pichistcheck.vrmanifest` beside the executable, hands it to
+`AddApplicationManifest` from `IVRApplications`, and turns on
+`SetApplicationAutoLaunch`. Once registered, the application appears in
+SteamVR's list of startup add-ons, where the same switch can be flipped.
 
-解除するには次のようにします。
+To undo it:
 
 ```console
 vrc-pichistcheck --unregister
 ```
 
-登録されるのは**そのときの実行ファイルの絶対パス**です。実行ファイルを移動したりビルドし直して
-別の場所に置いた場合は、移動先で `--register` をやり直してください。`cargo run` で使っている
-`target\release\` のまま登録すると、そのパスに依存した登録になります。
+What gets registered is **the absolute path of the executable at that moment**.
+If you move the executable, or rebuild it somewhere else, run `--register`
+again from its new location. Registering the copy under `target\release\` that
+`cargo run` uses ties the registration to that path.
 
-## 設定
+## Configuration
 
-設定ファイルは実行ファイルと同じフォルダの `config.toml` です。存在しない場合は初回起動時に
-既定値で生成されます。書き込めない場所（`Program Files` の下など）に実行ファイルを置くと生成に
-失敗するので、その場合は書き込める場所に置いてください。
+The configuration file is `config.toml` in the same folder as the executable.
+It is created with defaults on the first run. Putting the executable somewhere
+unwritable, such as under `Program Files`, means the file cannot be created, so
+keep it somewhere you can write to.
 
 ```toml
 watch_directory = 'J:\Pictures\VRChat'
@@ -55,48 +59,52 @@ display_seconds = 3.0
 fade_seconds = 1.0
 ```
 
-| 項目 | 意味 |
+| Key | Meaning |
 | --- | --- |
-| `watch_directory` | 監視するフォルダ |
-| `panel_width_meters` | パネルの横幅（メートル） |
-| `panel_alpha` | 表示中の不透明度 |
-| `display_seconds` | フェードを始めるまでの表示時間 |
-| `fade_seconds` | フェードアウトにかける時間 |
+| `watch_directory` | Folder to watch |
+| `panel_width_meters` | Width of the panel in metres |
+| `panel_alpha` | Opacity while the panel is up |
+| `display_seconds` | How long the panel holds before it starts fading |
+| `fade_seconds` | How long the fade takes |
 
-`watch_directory` の既定値は Known Folder API で解決した Pictures フォルダ配下の `VRChat`
-です。`%USERPROFILE%\Pictures` を直接組み立てていないのは、Pictures が別ドライブや OneDrive
-にリダイレクトされている環境があるためです。
+`watch_directory` defaults to `VRChat` under the Pictures known folder. The path
+is not assembled from `%USERPROFILE%\Pictures`, because Pictures is often
+redirected to another drive or to OneDrive.
 
-写真が保存されるたびにパネルが差し替わり、表示時間のカウントがやり直されます。連続で撮った
-場合は最後の 1 枚が残ります。
+Each saved picture replaces the panel and restarts the countdown, so a burst of
+shots leaves the last one on screen.
 
-## OpenVR バインディングについて
+## About the OpenVR binding
 
-`src/openvr/sys.rs` の関数テーブルは OpenVR の公式ヘッダ `openvr_capi.h` から手で
-書き起こしたものです。対象のインターフェイス版数は次の通りです。
+The function tables in `src/openvr/sys.rs` were transcribed by hand from
+`openvr_capi.h`, the official OpenVR header. These are the interface versions
+they target.
 
-| インターフェイス | 版数 | エントリ数 |
+| Interface | Version | Entries |
 | --- | --- | --- |
 | `IVRSystem` | `IVRSystem_026` | 51 |
 | `IVROverlay` | `IVROverlay_028` | 82 |
+| `IVRApplications` | `IVRApplications_008` | 31 |
 
-関数テーブルは関数ポインタが並んだ構造体なので、**使わないエントリも含めて宣言の順序が
-ヘッダと完全に一致していなければなりません**。順序がずれると別の関数を呼び出してしまいます。
-ヘッダを更新するときは、次のコマンドで得られる名前の並びと `sys.rs` のフィールドの並びが
-一致していることを確認してください。
+A function table is a struct of function pointers, so **the order of the fields
+must match the header exactly, including the entries that are never called**.
+Get the order wrong and a different function is called. When updating against a
+newer header, check the sequence of names it produces against the fields in
+`sys.rs`:
 
 ```console
 awk '/^struct VR_IVROverlay_FnTable/,/^};/' openvr_capi.h \
   | sed -n 's/.*\*\([A-Za-z0-9_]*\))(.*/\1/p'
 ```
 
-呼び出し規約はヘッダの `OPENVR_FNTABLE_CALLTYPE`、すなわち Win32 では `__stdcall` です。
-Rust 側では `extern "system"` を使います。`VR_InitInternal` などの DLL エクスポート関数は
-`__cdecl` なので `extern "C"` です。
+The calling convention is whatever `OPENVR_FNTABLE_CALLTYPE` expands to, which
+is `__stdcall` on Win32, so the Rust side declares `extern "system"`. The
+functions exported by the DLL, such as `VR_InitInternal`, are `__cdecl` and are
+declared `extern "C"` instead.
 
-起動時に `GetOverlayErrorNameFromEnum` を呼んで文字列が返ることを確認しており、関数テーブル
-のずれをある程度は早期に検出できるようにしています。
+At startup `GetOverlayErrorNameFromEnum` is called and its result checked, which
+catches an obviously misaligned function table before a wrong call is made.
 
-## ライセンス
+## License
 
-MIT または Apache-2.0 のデュアルライセンスです。
+Dual licensed under MIT or Apache-2.0.
