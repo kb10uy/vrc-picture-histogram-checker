@@ -54,17 +54,19 @@ impl Context {
             overlay: null(),
             applications: null(),
         };
-        context.system = context.library.fn_table(IVR_SYSTEM_FN_TABLE)?;
-        context.overlay = context.library.fn_table(IVR_OVERLAY_FN_TABLE)?;
+        if kind != APPLICATION_TYPE_UTILITY {
+            context.system = context.library.fn_table(IVR_SYSTEM_FN_TABLE)?;
+            context.overlay = context.library.fn_table(IVR_OVERLAY_FN_TABLE)?;
+        }
         context.applications = context.library.fn_table(IVR_APPLICATIONS_FN_TABLE)?;
-        context.verify_fn_table()?;
+        context.verify_fn_tables()?;
 
         Ok(context)
     }
 
     pub fn add_application_manifest(&self, manifest: &Path) -> Result<(), OpenvrError> {
         let path = c_string(manifest.to_string_lossy().as_ref(), "manifest path")?;
-        let add = self.applications_table().AddApplicationManifest.ok_or(
+        let add = self.applications_table()?.AddApplicationManifest.ok_or(
             OpenvrError::MissingFunction {
                 name: "AddApplicationManifest",
             },
@@ -76,7 +78,7 @@ impl Context {
 
     pub fn remove_application_manifest(&self, manifest: &Path) -> Result<(), OpenvrError> {
         let path = c_string(manifest.to_string_lossy().as_ref(), "manifest path")?;
-        let remove = self.applications_table().RemoveApplicationManifest.ok_or(
+        let remove = self.applications_table()?.RemoveApplicationManifest.ok_or(
             OpenvrError::MissingFunction {
                 name: "RemoveApplicationManifest",
             },
@@ -92,7 +94,7 @@ impl Context {
         enabled: bool,
     ) -> Result<(), OpenvrError> {
         let key = c_string(app_key, "application key")?;
-        let set = self.applications_table().SetApplicationAutoLaunch.ok_or(
+        let set = self.applications_table()?.SetApplicationAutoLaunch.ok_or(
             OpenvrError::MissingFunction {
                 name: "SetApplicationAutoLaunch",
             },
@@ -106,7 +108,11 @@ impl Context {
         let Ok(key) = c_string(app_key, "application key") else {
             return false;
         };
-        let Some(get) = self.applications_table().GetApplicationAutoLaunch else {
+        let Some(get) = self
+            .applications_table()
+            .ok()
+            .and_then(|applications| applications.GetApplicationAutoLaunch)
+        else {
             return false;
         };
         unsafe { get(key.as_ptr()) }
@@ -116,7 +122,7 @@ impl Context {
         let key = c_string(key, "overlay key")?;
         let name = c_string(name, "overlay name")?;
         let create = self
-            .overlay_table()
+            .overlay_table()?
             .CreateOverlay
             .ok_or(OpenvrError::MissingFunction {
                 name: "CreateOverlay",
@@ -133,7 +139,10 @@ impl Context {
     }
 
     pub fn poll_quit(&self) -> bool {
-        let Some(poll) = self.system_table().PollNextEvent else {
+        let Ok(system) = self.system_table() else {
+            return false;
+        };
+        let Some(poll) = system.PollNextEvent else {
             return false;
         };
 
@@ -143,22 +152,26 @@ impl Context {
             quitting |= event.event_type == EVENT_QUIT;
         }
 
-        if quitting && let Some(acknowledge) = self.system_table().AcknowledgeQuit_Exiting {
+        if quitting && let Some(acknowledge) = system.AcknowledgeQuit_Exiting {
             unsafe { acknowledge() };
         }
         quitting
     }
 
-    fn system_table(&self) -> &IvrSystemFnTable {
-        unsafe { &*self.system }
+    fn system_table(&self) -> Result<&IvrSystemFnTable, OpenvrError> {
+        unsafe { self.system.as_ref() }
+            .ok_or(OpenvrError::UnavailableInterface { name: "IVRSystem" })
     }
 
-    fn overlay_table(&self) -> &IvrOverlayFnTable {
-        unsafe { &*self.overlay }
+    fn overlay_table(&self) -> Result<&IvrOverlayFnTable, OpenvrError> {
+        unsafe { self.overlay.as_ref() }
+            .ok_or(OpenvrError::UnavailableInterface { name: "IVROverlay" })
     }
 
-    fn applications_table(&self) -> &IvrApplicationsFnTable {
-        unsafe { &*self.applications }
+    fn applications_table(&self) -> Result<&IvrApplicationsFnTable, OpenvrError> {
+        unsafe { self.applications.as_ref() }.ok_or(OpenvrError::UnavailableInterface {
+            name: "IVRApplications",
+        })
     }
 
     fn check_application(
@@ -173,18 +186,22 @@ impl Context {
             operation,
             code,
             name: self
-                .applications_table()
-                .GetApplicationsErrorNameFromEnum
-                .and_then(|name_of| owned_string(unsafe { name_of(code) }))
+                .application_error_name(code)
                 .unwrap_or_else(|| String::from("unknown")),
         })
     }
 
-    fn verify_fn_table(&self) -> Result<(), OpenvrError> {
-        match self.overlay_error_name(OVERLAY_ERROR_NONE) {
-            Some(name) if !name.is_empty() => Ok(()),
-            returned => Err(OpenvrError::FnTableMismatch { returned }),
+    fn verify_fn_tables(&self) -> Result<(), OpenvrError> {
+        if !self.overlay.is_null() {
+            verify(
+                "GetOverlayErrorNameFromEnum",
+                self.overlay_error_name(OVERLAY_ERROR_NONE),
+            )?;
         }
+        verify(
+            "GetApplicationsErrorNameFromEnum",
+            self.application_error_name(APPLICATION_ERROR_NONE),
+        )
     }
 
     fn check(&self, operation: &'static str, code: EvrOverlayError) -> Result<(), OpenvrError> {
@@ -201,8 +218,23 @@ impl Context {
     }
 
     fn overlay_error_name(&self, code: EvrOverlayError) -> Option<String> {
-        let name_of = self.overlay_table().GetOverlayErrorNameFromEnum?;
+        let name_of = self.overlay_table().ok()?.GetOverlayErrorNameFromEnum?;
         owned_string(unsafe { name_of(code) })
+    }
+
+    fn application_error_name(&self, code: EvrApplicationError) -> Option<String> {
+        let name_of = self
+            .applications_table()
+            .ok()?
+            .GetApplicationsErrorNameFromEnum?;
+        owned_string(unsafe { name_of(code) })
+    }
+}
+
+fn verify(probe: &'static str, returned: Option<String>) -> Result<(), OpenvrError> {
+    match returned {
+        Some(name) if !name.is_empty() => Ok(()),
+        returned => Err(OpenvrError::FnTableMismatch { probe, returned }),
     }
 }
 
@@ -245,7 +277,7 @@ impl Overlay<'_> {
         }
 
         let set = self
-            .table()
+            .table()?
             .SetOverlayRaw
             .ok_or(OpenvrError::MissingFunction {
                 name: "SetOverlayRaw",
@@ -256,7 +288,7 @@ impl Overlay<'_> {
 
     pub fn set_hmd_relative_transform(&self, transform: &Transform) -> Result<(), OpenvrError> {
         let set = self
-            .table()
+            .table()?
             .SetOverlayTransformTrackedDeviceRelative
             .ok_or(OpenvrError::MissingFunction {
                 name: "SetOverlayTransformTrackedDeviceRelative",
@@ -269,7 +301,7 @@ impl Overlay<'_> {
 
     pub fn set_width_meters(&self, width: f32) -> Result<(), OpenvrError> {
         let set = self
-            .table()
+            .table()?
             .SetOverlayWidthInMeters
             .ok_or(OpenvrError::MissingFunction {
                 name: "SetOverlayWidthInMeters",
@@ -280,7 +312,7 @@ impl Overlay<'_> {
 
     pub fn set_alpha(&self, alpha: f32) -> Result<(), OpenvrError> {
         let set = self
-            .table()
+            .table()?
             .SetOverlayAlpha
             .ok_or(OpenvrError::MissingFunction {
                 name: "SetOverlayAlpha",
@@ -290,24 +322,27 @@ impl Overlay<'_> {
     }
 
     pub fn set_visible(&self, visible: bool) -> Result<(), OpenvrError> {
+        let table = self.table()?;
         let (operation, function) = if visible {
-            ("ShowOverlay", self.table().ShowOverlay)
+            ("ShowOverlay", table.ShowOverlay)
         } else {
-            ("HideOverlay", self.table().HideOverlay)
+            ("HideOverlay", table.HideOverlay)
         };
         let show_or_hide = function.ok_or(OpenvrError::MissingFunction { name: operation })?;
         let code = unsafe { show_or_hide(self.handle) };
         self.context.check(operation, code)
     }
 
-    fn table(&self) -> &IvrOverlayFnTable {
+    fn table(&self) -> Result<&IvrOverlayFnTable, OpenvrError> {
         self.context.overlay_table()
     }
 }
 
 impl Drop for Overlay<'_> {
     fn drop(&mut self) {
-        if let Some(destroy) = self.table().DestroyOverlay {
+        if let Ok(table) = self.table()
+            && let Some(destroy) = table.DestroyOverlay
+        {
             unsafe { destroy(self.handle) };
         }
     }

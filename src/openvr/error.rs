@@ -44,9 +44,15 @@ pub enum OpenvrError {
 
     #[error(
         "the OpenVR function table layout does not match the expected interface version \
-         (GetOverlayErrorNameFromEnum returned {returned:?})"
+         ({probe} returned {returned:?})"
     )]
-    FnTableMismatch { returned: Option<String> },
+    FnTableMismatch {
+        probe: &'static str,
+        returned: Option<String>,
+    },
+
+    #[error("the OpenVR {name} interface is unavailable to this application type")]
+    UnavailableInterface { name: &'static str },
 
     #[error("{field} must not contain a NUL byte")]
     InvalidString { field: &'static str },

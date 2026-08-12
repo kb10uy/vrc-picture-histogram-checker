@@ -25,7 +25,7 @@ To have it come up together with SteamVR, put the executable where it is going
 to live and then register it.
 
 ```console
-vrc-pichistcheck --register
+vrc-picture-histogram-checker --register
 ```
 
 This writes `vrc-pichistcheck.vrmanifest` beside the executable, hands it to
@@ -36,7 +36,7 @@ SteamVR's list of startup add-ons, where the same switch can be flipped.
 To undo it:
 
 ```console
-vrc-pichistcheck --unregister
+vrc-picture-histogram-checker --unregister
 ```
 
 What gets registered is **the absolute path of the executable at that moment**.
@@ -96,6 +96,15 @@ newer header, check the sequence of names it produces against the fields in
 awk '/^struct VR_IVROverlay_FnTable/,/^};/' openvr_capi.h \
   | sed -n 's/.*\*\([A-Za-z0-9_]*\))(.*/\1/p'
 ```
+
+Which interfaces a process may ask for depends on the application type it
+passed to `VR_InitInternal`. `--register` and `--unregister` init as
+`VRApplication_Utility` so that they never bring up a scene session, and a
+utility application is handed `IVRApplications` but not `IVRSystem` or
+`IVROverlay`: asking for either fails with
+`VRInitError_Init_NotAvailableToUtilityApps`. `Context::init` therefore takes
+the system and overlay tables only for `VRApplication_Overlay`, and the
+accessors for them return an error rather than dereferencing a null pointer.
 
 The calling convention is whatever `OPENVR_FNTABLE_CALLTYPE` expands to, which
 is `__stdcall` on Win32, so the Rust side declares `extern "system"`. The
