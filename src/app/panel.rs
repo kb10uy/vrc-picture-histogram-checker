@@ -1,4 +1,4 @@
-use std::{fmt::Write, sync::Arc};
+use std::{fmt::Write, mem::take, sync::Arc};
 
 use image::{ExtendedColorType, ImageEncoder, RgbImage, codecs::png::PngEncoder};
 use resvg::{
@@ -22,6 +22,8 @@ const CONTENT_WIDTH: f32 = PANEL_WIDTH as f32 - PADDING * 2.0;
 const THUMBNAIL_HREF: &str = "thumbnail";
 const FONT_FAMILY: &str = "Segoe UI";
 const CHANNEL_COLORS: [&str; 3] = ["#ff5a5a", "#5aff8c", "#5aa8ff"];
+const MESSAGE_LINE_HEIGHT: f32 = 24.0;
+const MESSAGE_COLUMNS: usize = 64;
 
 #[derive(Debug, ThisError)]
 pub enum PanelError {
@@ -56,30 +58,42 @@ impl PanelRenderer {
 
     pub fn render(&self, analysis: &Analysis) -> Result<Frame, PanelError> {
         let thumbnail = encode_png(&analysis.thumbnail)?;
-        let document = build_document(analysis);
-
         let options = Options {
-            font_family: FONT_FAMILY.to_owned(),
-            fontdb: Arc::clone(&self.fonts),
             image_href_resolver: ImageHrefResolver {
                 resolve_string: Box::new(move |href, _| {
                     (href == THUMBNAIL_HREF).then(|| ImageKind::PNG(Arc::clone(&thumbnail)))
                 }),
                 ..ImageHrefResolver::default()
             },
-            ..Options::default()
+            ..self.options()
         };
 
-        let tree = Tree::from_str(&document, &options)?;
-        let mut pixmap = Pixmap::new(PANEL_WIDTH, PANEL_HEIGHT).ok_or(PanelError::Pixmap)?;
-        render(&tree, Transform::identity(), &mut pixmap.as_mut());
-
-        Ok(Frame {
-            pixels: to_straight_alpha(&pixmap),
-            width: PANEL_WIDTH,
-            height: PANEL_HEIGHT,
-        })
+        rasterize(&build_document(analysis), &options)
     }
+
+    pub fn render_message(&self, message: &str) -> Result<Frame, PanelError> {
+        rasterize(&build_message_document(message), &self.options())
+    }
+
+    fn options(&self) -> Options<'static> {
+        Options {
+            font_family: FONT_FAMILY.to_owned(),
+            fontdb: Arc::clone(&self.fonts),
+            ..Options::default()
+        }
+    }
+}
+
+fn rasterize(document: &str, options: &Options) -> Result<Frame, PanelError> {
+    let tree = Tree::from_str(document, options)?;
+    let mut pixmap = Pixmap::new(PANEL_WIDTH, PANEL_HEIGHT).ok_or(PanelError::Pixmap)?;
+    render(&tree, Transform::identity(), &mut pixmap.as_mut());
+
+    Ok(Frame {
+        pixels: to_straight_alpha(&pixmap),
+        width: PANEL_WIDTH,
+        height: PANEL_HEIGHT,
+    })
 }
 
 fn build_document(analysis: &Analysis) -> String {
@@ -155,6 +169,94 @@ fn build_document(analysis: &Analysis) -> String {
     document
 }
 
+fn build_message_document(message: &str) -> String {
+    let lines = wrap(message, MESSAGE_COLUMNS);
+    let top = (PANEL_HEIGHT as f32 - MESSAGE_LINE_HEIGHT * lines.len() as f32) / 2.0;
+
+    let mut document = String::with_capacity(1024);
+    let _ = write!(
+        document,
+        concat!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" "#,
+            r#"viewBox="0 0 {width} {height}">"#,
+            r##"<rect width="{width}" height="{height}" rx="14" fill="#14161a"/>"##,
+        ),
+        width = PANEL_WIDTH,
+        height = PANEL_HEIGHT,
+    );
+
+    for (index, line) in lines.iter().enumerate() {
+        let _ = write!(
+            document,
+            concat!(
+                r##"<text x="{centre}" y="{baseline:.1}" font-family="{font}" font-size="16" "##,
+                r##"text-anchor="middle" fill="#c9ced6">{text}</text>"##,
+            ),
+            centre = PANEL_WIDTH as f32 / 2.0,
+            baseline = top + MESSAGE_LINE_HEIGHT * (index + 1) as f32,
+            font = FONT_FAMILY,
+            text = escape(line),
+        );
+    }
+
+    document.push_str("</svg>");
+    document
+}
+
+fn wrap(text: &str, columns: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    for paragraph in text.lines() {
+        let mut current = String::new();
+        for mut word in paragraph.split_whitespace() {
+            while word.chars().count() > columns {
+                if !current.is_empty() {
+                    lines.push(take(&mut current));
+                }
+                let split = word
+                    .char_indices()
+                    .nth(columns)
+                    .map_or(word.len(), |(index, _)| index);
+                let (head, tail) = word.split_at(split);
+                lines.push(head.to_owned());
+                word = tail;
+            }
+
+            if word.is_empty() {
+                continue;
+            }
+            if current.is_empty() {
+                current.push_str(word);
+            } else if current.chars().count() + 1 + word.chars().count() <= columns {
+                current.push(' ');
+                current.push_str(word);
+            } else {
+                lines.push(take(&mut current));
+                current.push_str(word);
+            }
+        }
+
+        if !current.is_empty() || paragraph.is_empty() {
+            lines.push(current);
+        }
+    }
+
+    lines
+}
+
+fn escape(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
+}
+
 fn channel_outline(histogram: &[u32; BINS], peak: u32) -> String {
     let bottom = HISTOGRAM_TOP + HISTOGRAM_HEIGHT;
     let mut path = String::with_capacity(BINS * 16);
@@ -198,8 +300,12 @@ fn encode_png(image: &RgbImage) -> Result<Arc<Vec<u8>>, PanelError> {
 #[cfg(test)]
 mod tests {
     use image::{Rgb, RgbImage};
+    use rstest::rstest;
 
-    use super::{PANEL_HEIGHT, PANEL_WIDTH, PanelRenderer, build_document};
+    use super::{
+        MESSAGE_COLUMNS, PANEL_HEIGHT, PANEL_WIDTH, PanelRenderer, build_document,
+        build_message_document, escape, wrap,
+    };
     use crate::app::analysis::{Analysis, analyze_image};
 
     fn sample(color: [u8; 3]) -> Analysis {
@@ -248,5 +354,53 @@ mod tests {
 
         assert!(!document.contains("NaN"));
         assert!(!document.contains("inf"));
+    }
+
+    #[test]
+    fn renders_a_message_of_the_declared_size() {
+        let frame = PanelRenderer::new()
+            .render_message("watching\nJ:\\Pictures\\VRChat")
+            .expect("should render");
+
+        assert_eq!(frame.width, PANEL_WIDTH);
+        assert_eq!(frame.height, PANEL_HEIGHT);
+    }
+
+    #[test]
+    fn draws_one_text_element_per_line() {
+        let document = build_message_document("watching\n\nJ:\\Pictures\\VRChat");
+
+        assert!(document.starts_with("<svg"));
+        assert!(document.ends_with("</svg>"));
+        assert_eq!(document.matches("<text").count(), 3);
+        assert!(document.contains("J:\\Pictures\\VRChat"));
+    }
+
+    #[rstest]
+    #[case::empty("", 0)]
+    #[case::single_line("watching", 1)]
+    #[case::blank_line_kept("watching\n\nnowhere", 3)]
+    #[case::wrapped(
+        "failed to read C:\\Users\\someone\\Pictures\\VRChat\\2026-08\\VRChat_2026-08-01.png",
+        2
+    )]
+    #[case::unbroken_word(
+        "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+        2
+    )]
+    fn wraps_into_lines(#[case] text: &str, #[case] expected: usize) {
+        let lines = wrap(text, MESSAGE_COLUMNS);
+
+        assert_eq!(lines.len(), expected);
+        assert!(
+            lines
+                .iter()
+                .all(|line| line.chars().count() <= MESSAGE_COLUMNS)
+        );
+    }
+
+    #[test]
+    fn escapes_markup_in_messages() {
+        assert_eq!(escape("a & b < c > d"), "a &amp; b &lt; c &gt; d");
     }
 }

@@ -4,6 +4,58 @@
 
 This is a VR overlay application to analyze and notify the saved picture of VRChat.
 
+## Architecture
+
+`main.rs` owns the loop and little else. It wires the pieces together, decides
+what reaches the screen, and is the only place that knows the order of a tick:
+drain the window's messages, take whatever the watcher has finished, then move
+the overlay's alpha along. The two boundaries worth protecting are that `openvr`
+knows nothing about pictures or panels, and that everything under `app` knows
+nothing about OpenVR.
+
+- `paths` resolves siblings of the executable; `config` and `manifest` both sit
+  on it, because the configuration and the manifest live beside the binary.
+- `config` loads or creates `config.toml`, and resolves the Pictures known
+  folder for the default watch directory.
+- `openvr` is the binding. `sys` holds the function tables, `loader` finds and
+  opens `openvr_api.dll` and its exports, `error` collects the failures.
+  `Context` hands out an `Overlay`, which takes a frame as raw RGBA8 bytes and
+  has no idea what is in it.
+- `app::watcher` turns filesystem events into paths of pictures that VRChat has
+  finished writing. Deciding that a file is complete is its problem, not the
+  loop's.
+- `app::analysis` decodes a picture into an `Analysis`: histogram, clipping
+  ratios, and a thumbnail. `analyze_image` is split out from `analyze` so the
+  measuring can be tested without touching the disk.
+- `app::panel` draws an `Analysis`, or a message, into a `Frame`.
+- `app::notification` is the fade, and only the fade.
+- `app::window` is the desktop half: one Win32 window showing the last `Frame`.
+- `app::console` reattaches the standard handles for the command line paths.
+- `app::manifest` builds the `.vrmanifest` that `--register` hands to SteamVR.
+
+`Frame` is the single currency for anything that ends up on screen: straight
+alpha RGBA8, `PANEL_WIDTH` by `PANEL_HEIGHT`. The overlay uploads it unchanged.
+The window composites it over the panel's own background colour first, because
+the panel is drawn with rounded corners and on the desktop there is nothing
+behind it to blend into.
+
+`Notification` is time arithmetic and nothing else. Alpha is a function of
+`now - shown_at` rather than a value stepped down once per tick, so an uneven
+loop — a slow render, or the modal loop Windows runs while the window is being
+dragged — changes how often the fade is sampled but neither its shape nor when
+it ends. Keep it that way.
+
+The binary is built for the Windows subsystem, so no module may assume a console
+exists. Anything the user needs to see while `run` is going belongs on the
+panel, and a failure that stops `run` from starting goes to a message box.
+`app::console` exists so that `--register`, `--unregister` and the switches
+`clap` answers by itself still report to the shell they were started from.
+
+Win32 is reached through the `windows` crate rather than `windows-sys`, so
+handles are typed and anything that can fail returns a `Result`. The one
+deliberate exception to using a generated binding is `openvr/sys.rs`, which is
+transcribed by hand for the reasons `README.md` gives.
+
 ## Code Style
 
 - Use Rust edition 2024.

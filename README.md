@@ -14,6 +14,22 @@ Start it while SteamVR is running.
 cargo run
 ```
 
+## The desktop window
+
+The executable is built for the Windows subsystem, so starting it opens no
+console. What it opens instead is a window holding the same panel the overlay
+last showed, at its native 512x424 pixels, and it keeps showing it rather than
+fading it out. Until the first picture arrives the window carries the paths it
+resolved at startup, and a picture that cannot be read or drawn replaces the
+panel with the reason. Closing the window stops the application.
+
+Output from `--register`, `--unregister`, `--help` and `--version` still reaches
+the console the application was started from. A Windows subsystem process is
+handed no console of its own, so it attaches to the parent's, which is also why
+the shell prompt comes back before the text is printed. Redirecting to a file or
+a pipe works as usual. A failure that stops `run` from starting is reported in a
+message box, because there may be no console to report it to.
+
 `openvr_api.dll` is not bundled. It is loaded at runtime from the SteamVR
 runtime recorded in `%LOCALAPPDATA%\openvr\openvrpaths.vrpath`, at
 `bin\win64\openvr_api.dll`. If that lookup fails, the plain name is loaded

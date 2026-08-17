@@ -3,18 +3,13 @@ use std::{
     fs::{create_dir_all, read_to_string, write},
     os::windows::ffi::OsStringExt,
     path::{Path, PathBuf},
-    ptr::null_mut,
-    slice::from_raw_parts,
 };
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
-use windows_sys::{
-    Win32::{
-        System::Com::CoTaskMemFree,
-        UI::Shell::{FOLDERID_Pictures, SHGetKnownFolderPath},
-    },
-    core::PWSTR,
+use windows::Win32::{
+    System::Com::CoTaskMemFree,
+    UI::Shell::{FOLDERID_Pictures, KF_FLAG_DEFAULT, SHGetKnownFolderPath},
 };
 
 use crate::paths::beside_executable;
@@ -148,18 +143,13 @@ fn pictures_directory() -> PathBuf {
 }
 
 fn known_pictures_directory() -> Option<PathBuf> {
-    let mut raw: PWSTR = null_mut();
-    let result = unsafe { SHGetKnownFolderPath(&FOLDERID_Pictures, 0, null_mut(), &mut raw) };
-    if result < 0 || raw.is_null() {
+    let raw = unsafe { SHGetKnownFolderPath(&FOLDERID_Pictures, KF_FLAG_DEFAULT, None) }.ok()?;
+    if raw.is_null() {
         return None;
     }
 
-    let mut length = 0;
-    while unsafe { *raw.add(length) } != 0 {
-        length += 1;
-    }
-    let directory = OsString::from_wide(unsafe { from_raw_parts(raw, length) });
-    unsafe { CoTaskMemFree(raw.cast()) };
+    let directory = OsString::from_wide(unsafe { raw.as_wide() });
+    unsafe { CoTaskMemFree(Some(raw.as_ptr().cast())) };
 
     Some(PathBuf::from(directory))
 }

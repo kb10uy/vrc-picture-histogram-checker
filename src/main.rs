@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 mod app;
 mod config;
 mod openvr;
@@ -19,10 +21,11 @@ use thiserror::Error as ThisError;
 
 use crate::{
     app::{
-        analysis, manifest,
+        analysis, console, manifest,
         notification::Notification,
-        panel::PanelRenderer,
+        panel::{PANEL_HEIGHT, PANEL_WIDTH, PanelRenderer},
         watcher::{PhotoWatcher, WatcherError},
+        window::{Window, WindowError, show_error},
     },
     config::{Config, ConfigError},
     openvr::{Context, OpenvrError, Overlay, Transform},
@@ -65,18 +68,26 @@ enum Error {
 
     #[error(transparent)]
     Openvr(#[from] OpenvrError),
+
+    #[error(transparent)]
+    Window(#[from] WindowError),
 }
 
 fn main() {
+    console::attach_to_parent();
+
     let arguments = Arguments::parse();
-    let result = match (arguments.register, arguments.unregister) {
-        (true, _) => set_auto_launch(true),
-        (_, true) => set_auto_launch(false),
-        _ => run(),
+    let (result, graphical) = match (arguments.register, arguments.unregister) {
+        (true, _) => (set_auto_launch(true), false),
+        (_, true) => (set_auto_launch(false), false),
+        _ => (run(), true),
     };
 
     if let Err(error) = result {
         eprintln!("{error}");
+        if graphical {
+            show_error(&error.to_string());
+        }
         exit(1);
     }
 }
@@ -113,8 +124,6 @@ fn run() -> Result<(), Error> {
 
     let config_path = Config::path()?;
     let config = Config::load_or_create(&config_path)?;
-    println!("configuration: {}", config_path.display());
-    println!("watching: {}", config.watch_directory.display());
     if !config.watch_directory.is_dir() {
         return Err(Error::NotADirectory(
             config.watch_directory.display().to_string(),
@@ -123,6 +132,17 @@ fn run() -> Result<(), Error> {
     let mut watcher = PhotoWatcher::new(&config.watch_directory)?;
 
     let renderer = PanelRenderer::new();
+    let window = Window::new(OVERLAY_NAME, PANEL_WIDTH, PANEL_HEIGHT)?;
+    show_message(
+        &renderer,
+        &window,
+        &format!(
+            "configuration\n{}\n\nwatching\n{}",
+            config_path.display(),
+            config.watch_directory.display()
+        ),
+    );
+
     let context = Context::init_overlay_app()?;
     let overlay = context.create_overlay(OVERLAY_KEY, OVERLAY_NAME)?;
 
@@ -137,8 +157,12 @@ fn run() -> Result<(), Error> {
     let mut visible = false;
 
     while running.load(Ordering::Relaxed) {
+        if !window.pump() {
+            break;
+        }
+
         for path in watcher.poll() {
-            if show(&renderer, &overlay, &path)? {
+            if show(&renderer, &overlay, &window, &path)? {
                 notification.trigger(Instant::now());
             }
         }
@@ -167,30 +191,35 @@ fn run() -> Result<(), Error> {
     Ok(())
 }
 
-fn show(renderer: &PanelRenderer, overlay: &Overlay<'_>, path: &Path) -> Result<bool, Error> {
+fn show(
+    renderer: &PanelRenderer,
+    overlay: &Overlay<'_>,
+    window: &Window,
+    path: &Path,
+) -> Result<bool, Error> {
     let analysis = match analysis::analyze(path) {
         Ok(analysis) => analysis,
         Err(error) => {
-            eprintln!("{error}");
+            show_message(renderer, window, &error.to_string());
             return Ok(false);
         }
     };
 
-    println!(
-        "{}: highlight {:.2}%  shadow {:.2}%",
-        path.file_name().unwrap_or(path.as_os_str()).display(),
-        analysis.clipped_highlights * 100.0,
-        analysis.clipped_shadows * 100.0
-    );
-
     let frame = match renderer.render(&analysis) {
         Ok(frame) => frame,
         Err(error) => {
-            eprintln!("{error}");
+            show_message(renderer, window, &error.to_string());
             return Ok(false);
         }
     };
 
     overlay.set_raw_rgba8(&frame.pixels, frame.width, frame.height)?;
+    window.set_frame(&frame);
     Ok(true)
+}
+
+fn show_message(renderer: &PanelRenderer, window: &Window, message: &str) {
+    if let Ok(frame) = renderer.render_message(message) {
+        window.set_frame(&frame);
+    }
 }
