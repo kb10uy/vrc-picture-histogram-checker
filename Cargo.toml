@@ -1,6 +1,6 @@
 [package]
 name = "vrc-picture-histogram-checker"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Analyzes pictures saved by VRChat and shows their histogram as a SteamVR overlay"
