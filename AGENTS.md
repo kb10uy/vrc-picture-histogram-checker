@@ -30,6 +30,11 @@ nothing about OpenVR.
 - `app::panel` draws an `Analysis`, or a message, into a `Frame`.
 - `app::notification` is the fade, and only the fade.
 - `app::window` is the desktop half: one Win32 window showing the last `Frame`.
+  Minimizing it hides it rather than iconifying it; closing it ends `run`.
+- `app::tray` is the notification area icon that belongs to that window: it
+  adds and removes the icon, answers its clicks by showing the window or
+  posting `WM_CLOSE`, and re-adds the icon when Explorer announces
+  `TaskbarCreated`. The window procedure routes those messages to it.
 - `app::console` reattaches the standard handles for the command line paths.
 - `app::manifest` builds the `.vrmanifest` that `--register` hands to SteamVR.
 

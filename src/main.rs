@@ -132,7 +132,12 @@ fn run() -> Result<(), Error> {
     let mut watcher = PhotoWatcher::new(&config.watch_directory)?;
 
     let renderer = PanelRenderer::new();
-    let window = Window::new(OVERLAY_NAME, PANEL_WIDTH, PANEL_HEIGHT)?;
+    let window = Window::new(
+        OVERLAY_NAME,
+        PANEL_WIDTH,
+        PANEL_HEIGHT,
+        !config.start_in_tray,
+    )?;
     show_message(
         &renderer,
         &window,

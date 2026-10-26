@@ -23,6 +23,13 @@ fading it out. Until the first picture arrives the window carries the paths it
 resolved at startup, and a picture that cannot be read or drawn replaces the
 panel with the reason. Closing the window stops the application.
 
+While it runs, an icon sits in the notification area of the taskbar. Minimizing
+the window hides it there instead of sending it to the taskbar; clicking the
+icon brings it back, and right-clicking it opens a menu with **Show** and
+**Quit**. The icon survives an Explorer restart, so a hidden window never
+becomes unreachable. Setting `start_in_tray` in the configuration starts the
+application already hidden, which suits being launched by SteamVR.
+
 Output from `--register`, `--unregister`, `--help` and `--version` still reaches
 the console the application was started from. A Windows subsystem process is
 handed no console of its own, so it attaches to the parent's, which is also why
@@ -73,6 +80,7 @@ panel_width_meters = 0.4
 panel_alpha = 0.75
 display_seconds = 3.0
 fade_seconds = 1.0
+start_in_tray = false
 ```
 
 | Key | Meaning |
@@ -82,6 +90,7 @@ fade_seconds = 1.0
 | `panel_alpha` | Opacity while the panel is up |
 | `display_seconds` | How long the panel holds before it starts fading |
 | `fade_seconds` | How long the fade takes |
+| `start_in_tray` | Start hidden in the notification area instead of opening the window; defaults to `false` |
 
 `watch_directory` defaults to `VRChat` under the Pictures known folder. The path
 is not assembled from `%USERPROFILE%\Pictures`, because Pictures is often

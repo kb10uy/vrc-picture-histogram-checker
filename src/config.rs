@@ -61,6 +61,9 @@ pub struct Config {
 
     #[serde(default = "default_fade_seconds")]
     pub fade_seconds: f32,
+
+    #[serde(default)]
+    pub start_in_tray: bool,
 }
 
 impl Default for Config {
@@ -71,6 +74,7 @@ impl Default for Config {
             panel_alpha: default_panel_alpha(),
             display_seconds: default_display_seconds(),
             fade_seconds: default_fade_seconds(),
+            start_in_tray: false,
         }
     }
 }
@@ -210,6 +214,14 @@ mod tests {
         assert_eq!(config.panel_alpha, DEFAULT_PANEL_ALPHA);
         assert_eq!(config.display_seconds, DEFAULT_DISPLAY_SECONDS);
         assert_eq!(config.fade_seconds, DEFAULT_FADE_SECONDS);
+    }
+
+    #[rstest]
+    #[case::omitted("watch_directory = 'D:\\Shots'\n", false)]
+    #[case::enabled("watch_directory = 'D:\\Shots'\nstart_in_tray = true\n", true)]
+    fn starts_visible_unless_asked_otherwise(#[case] contents: &str, #[case] in_tray: bool) {
+        let config: Config = toml::from_str(contents).expect("should parse");
+        assert_eq!(config.start_in_tray, in_tray);
     }
 
     #[test]

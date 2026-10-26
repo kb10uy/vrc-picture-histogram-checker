@@ -15,17 +15,17 @@ use windows::{
                 CREATESTRUCTW, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow,
                 DispatchMessageW, GWLP_USERDATA, GetClientRect, GetWindowLongPtrW, GetWindowRect,
                 IDC_ARROW, LoadCursorW, MB_ICONERROR, MB_OK, MSG, MessageBoxW, PM_REMOVE,
-                PeekMessageW, PostQuitMessage, RegisterClassW, SW_SHOW, SWP_NOMOVE, SWP_NOZORDER,
-                SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, WINDOW_EX_STYLE,
-                WINDOW_STYLE, WM_CREATE, WM_DESTROY, WM_PAINT, WM_QUIT, WNDCLASSW, WS_CAPTION,
-                WS_MINIMIZEBOX, WS_SYSMENU,
+                PeekMessageW, PostQuitMessage, RegisterClassW, SC_MINIMIZE, SW_HIDE, SW_SHOW,
+                SWP_NOMOVE, SWP_NOZORDER, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+                TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CREATE, WM_DESTROY, WM_PAINT,
+                WM_QUIT, WM_SYSCOMMAND, WNDCLASSW, WS_CAPTION, WS_MINIMIZEBOX, WS_SYSMENU,
             },
         },
     },
     core::{Error as WindowsError, HSTRING, PCWSTR, w},
 };
 
-use crate::app::panel::Frame;
+use crate::app::{panel::Frame, tray};
 
 const CLASS_NAME: PCWSTR = w!("org.kb10uy.vrc-pichistcheck.window");
 const CAPTION: PCWSTR = w!("VRC Picture Histogram Checker");
@@ -81,7 +81,7 @@ pub struct Window {
 }
 
 impl Window {
-    pub fn new(title: &str, width: u32, height: u32) -> Result<Self, WindowError> {
+    pub fn new(title: &str, width: u32, height: u32, visible: bool) -> Result<Self, WindowError> {
         let _ =
             unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
 
@@ -125,7 +125,9 @@ impl Window {
 
         let window = Window { hwnd, bitmap };
         window.fit_client_area(width as i32, height as i32);
-        let _ = unsafe { ShowWindow(hwnd, SW_SHOW) };
+        if visible {
+            let _ = unsafe { ShowWindow(hwnd, SW_SHOW) };
+        }
         Ok(window)
     }
 
@@ -198,6 +200,19 @@ unsafe extern "system" fn window_proc(
             let create = lparam.0 as *const CREATESTRUCTW;
             let bitmap = unsafe { (*create).lpCreateParams };
             unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, bitmap as isize) };
+            tray::add(hwnd, CAPTION);
+            LRESULT(0)
+        }
+        WM_SYSCOMMAND if (wparam.0 & 0xfff0) as u32 == SC_MINIMIZE => {
+            let _ = unsafe { ShowWindow(hwnd, SW_HIDE) };
+            LRESULT(0)
+        }
+        tray::CALLBACK => {
+            tray::handle(hwnd, lparam);
+            LRESULT(0)
+        }
+        message if message == tray::taskbar_created() => {
+            tray::add(hwnd, CAPTION);
             LRESULT(0)
         }
         WM_PAINT => {
@@ -212,6 +227,7 @@ unsafe extern "system" fn window_proc(
             LRESULT(0)
         }
         WM_DESTROY => {
+            tray::remove(hwnd);
             unsafe { PostQuitMessage(0) };
             LRESULT(0)
         }
